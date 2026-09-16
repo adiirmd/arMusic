@@ -26,6 +26,11 @@ jobs:
           java-version: "17"
 
       - uses: android-actions/setup-android@v3
+        with:
+          # Paket bawaan action ini menyertakan 'tools' yang sudah dihapus
+          # Google, dan sdkmanager gagal karenanya. Sebut paketnya sendiri
+          # sekalian supaya versinya pasti, bukan ikut isi image runner.
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
       - uses: gradle/actions/setup-gradle@v4
 
