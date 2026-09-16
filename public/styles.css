@@ -1146,12 +1146,17 @@ body.hq-audio #yt-player {
     justify-content: flex-start;
     align-items: stretch;
     gap: 12px;
-    overflow: hidden;
+    overflow-y: auto;
+    min-height: 0;
   }
+  #nowplaying .np-body { min-height: 0; }
   #nowplaying .np-art-wrap {
-    width: 100%;
+    /* scale with the window height, not just the panel width, or a short
+       window pushes the controls past the bottom edge */
+    width: min(100%, 32vh);
     max-width: none;
     align-self: center;
+    flex-shrink: 0;
   }
   #nowplaying .np-meta { text-align: left; }
   #nowplaying #np-title {
@@ -1183,7 +1188,7 @@ body.hq-audio #yt-player {
   #nowplaying #np-quality span { display: inline; font-size: 11px; font-weight: 800; }
   #nowplaying .np-volume { display: none; }
   #nowplaying #np-lyric-preview { max-width: none; text-align: left; font-size: 12.5px; }
-  body.np-open.has-player #nowplaying { margin-bottom: var(--player-h); }
+  body.np-open.has-player #nowplaying { margin-bottom: calc(var(--player-h) + 14px); }
 }
 
 /* ---------- responsive ---------- */
