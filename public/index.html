@@ -3,20 +3,23 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#000000" />
+<meta name="theme-color" content="#070c16" />
 <title>AR Music</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
 <link rel="icon" type="image/png" sizes="192x192" href="/logo-192.png" />
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="preload" as="image" href="/logo.png" />
 <link rel="stylesheet" href="styles.css" />
 <script>
 try {
   var t = JSON.parse(localStorage.getItem('smw_theme') || '"dark"');
-  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+  var light = t === 'light';
+  document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
+  var m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute('content', light ? '#e8eef7' : '#070c16');
 } catch (e) {}
 </script>
 </head>
@@ -27,7 +30,7 @@ try {
     <div class="splash-name">AR Music</div>
   </div>
 </div>
-<!-- Spotify-style icon sprite -->
+<!-- icon sprite -->
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M12.5 3.2a1 1 0 0 0-1 0L3.5 7.8a1 1 0 0 0-.5.9V20a1 1 0 0 0 1 1h5.5v-6h5v6H20a1 1 0 0 0 1-1V8.7a1 1 0 0 0-.5-.9l-8-4.6z"/></symbol>
   <symbol id="i-home-o" viewBox="0 0 24 24"><path d="M12 5.1 5 9.2V19h4v-6h6v6h4V9.2l-7-4.1zm-.5-1.9a1 1 0 0 1 1 0l8 4.6a1 1 0 0 1 .5.9V20a1 1 0 0 1-1 1h-5.5v-6h-5v6H4a1 1 0 0 1-1-1V8.7a1 1 0 0 1 .5-.9l8-4.6z"/></symbol>
@@ -117,7 +120,7 @@ try {
     <div id="view"></div>
   </main>
 
-  <!-- Player bar (Spotify style) -->
+  <!-- Player bar -->
   <div id="miniplayer" class="hidden">
     <div class="pb-left">
       <img id="mini-art" alt="" />

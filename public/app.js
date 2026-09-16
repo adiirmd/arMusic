@@ -34,7 +34,8 @@ function hueFrom(str) {
   let h = 0;
   const s = String(str || 'home');
   for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  return Math.abs(h) % 360;
+  // keep every page tint inside the calm blue band (cyan -> indigo)
+  return 190 + (Math.abs(h) % 55);
 }
 function applyTint(key) {
   document.documentElement.style.setProperty('--tint', hueFrom(key));
@@ -48,7 +49,7 @@ function updateThemeIcon() {
   const use = $('#theme-ic use');
   if (use) use.setAttribute('href', currentTheme() === 'light' ? '#i-moon' : '#i-sun');
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', currentTheme() === 'light' ? '#ebebeb' : '#000000');
+  if (meta) meta.setAttribute('content', currentTheme() === 'light' ? '#e8eef7' : '#070c16');
 }
 function toggleTheme() {
   const next = currentTheme() === 'light' ? 'dark' : 'light';
@@ -1324,7 +1325,7 @@ const NAV = [
 ];
 function renderNav() {
   const html = NAV.map((n) => `<button class="nav-item" data-id="${n.id}" data-ic="${n.icon}" data-ica="${n.iconActive}" onclick="location.hash='${n.hash}'"><svg class="ic"><use href="#${n.icon}"/></svg><span>${n.label}</span></button>`).join('');
-  // desktop sidebar: only Home + Search (Spotify layout); library lives in its own box
+  // desktop sidebar: only Home + Search; library lives in its own section
   $('#nav-desktop').innerHTML = NAV.filter((n) => ['home', 'search', 'charts'].includes(n.id))
     .map((n) => `<button class="nav-item" data-id="${n.id}" data-ic="${n.icon}" data-ica="${n.iconActive}" onclick="location.hash='${n.hash}'"><svg class="ic"><use href="#${n.icon}"/></svg><span>${n.label}</span></button>`).join('');
   $('#nav-mobile').innerHTML = html;
@@ -1339,7 +1340,7 @@ function setActiveNav(id) {
   });
 }
 
-/* ---- Your Library sidebar (Spotify left rail) ---- */
+/* ---- Your Library sidebar (left rail) ---- */
 function renderSidebarLibrary() {
   const el = $('#lib-list');
   if (!el) return;
@@ -1694,8 +1695,8 @@ async function viewCharts(view) {
   bindItems(view);
 }
 
-/* Spotify browse-tile palette (fallback when YT colors are missing) */
-const MOOD_COLORS = ['#1db954','#e13300','#7358ff','#e8115b','#148a08','#dc148c','#bc5900','#8d67ab','#e91429','#1e3264','#537aa1','#af2896','#477d95','#ba5d07','#0d73ec','#8c1932'];
+/* browse-tile palette (fallback when YT colors are missing) */
+const MOOD_COLORS = ['#2f5fc0','#3b8fd4','#2a7f8f','#4d8df0','#35b4c4','#4a63b8','#1f6f9c','#5a7fd8','#2e8fa8','#3d6fc4','#6a8fe0','#27698c','#4478cc','#2f9ab0','#5470c8','#3aa0bc'];
 
 /* ---- Moods ---- */
 async function viewMoods(view) {
@@ -2446,7 +2447,7 @@ $('#mini-play').addEventListener('click', (e) => { e.stopPropagation(); togglePl
 $('#mini-next').addEventListener('click', (e) => { e.stopPropagation(); nextTrack(false); });
 $('#mini-prev').addEventListener('click', (e) => { e.stopPropagation(); prevTrack(); });
 $('#mini-like').addEventListener('click', (e) => { e.stopPropagation(); if (Player.current) Library.toggleFav(Player.current); });
-/* open Now Playing from art / title / expand button (Spotify behaviour) */
+/* open Now Playing from art / title / expand button */
 const openNP = (e) => {
   e.stopPropagation();
   Player.pending = null;
@@ -2581,7 +2582,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyP') { e.preventDefault(); toggleFloatWidget(); }
 });
 
-/* topbar back / forward (Spotify chrome) */
+/* topbar back / forward */
 $('#nav-back').addEventListener('click', () => history.back());
 $('#nav-fwd').addEventListener('click', () => history.forward());
 $('#lib-new').addEventListener('click', () => go('#/library'));
@@ -2614,31 +2615,31 @@ Player.floatOn = false;
 
 const FW_CSS = `
   :root { color-scheme: dark; }
-  html, body { margin: 0; height: 100%; background: #121212; color: #fff;
-    font-family: Figtree, Segoe UI, sans-serif; overflow: hidden; }
+  html, body { margin: 0; height: 100%; background: #0c1422; color: #e9eff9;
+    font-family: "Plus Jakarta Sans", Segoe UI, sans-serif; overflow: hidden; }
   html[data-theme="light"] { color-scheme: light; }
-  html[data-theme="light"] body { background: #fff; color: #121212; }
+  html[data-theme="light"] body { background: #fff; color: #0f1c2f; }
   #float-widget {
     display: flex; align-items: center; gap: 10px; height: 100%;
     padding: 10px 12px; box-sizing: border-box;
-    background: linear-gradient(135deg, #1a1a1a, #121212);
+    background: linear-gradient(135deg, #16223a, #0c1422);
   }
-  html[data-theme="light"] #float-widget { background: linear-gradient(135deg, #f4f4f4, #fff); }
-  #fw-art { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; background: #282828; flex-shrink: 0; }
+  html[data-theme="light"] #float-widget { background: linear-gradient(135deg, #eef4fc, #fff); }
+  #fw-art { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; background: #1a2740; flex-shrink: 0; }
   .fw-meta { min-width: 0; flex: 1; }
   #fw-title { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #fw-artist { font-size: 12px; opacity: .65; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #fw-lyric { margin-top: 5px; font-size: 12px; font-weight: 700; color: #1ed760; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; line-height: 1.3; }
+  #fw-lyric { margin-top: 5px; font-size: 12px; font-weight: 700; color: #6ba6ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; line-height: 1.3; }
   #fw-lyric:empty { display: none; }
   .fw-bar { margin-top: 8px; height: 4px; background: rgba(255,255,255,.22); border-radius: 99px; cursor: pointer; overflow: hidden; }
   html[data-theme="light"] .fw-bar { background: rgba(0,0,0,.18); }
-  #fw-fill { height: 100%; width: 0; background: #1ed760; border-radius: 99px; }
+  #fw-fill { height: 100%; width: 0; background: #6ba6ff; border-radius: 99px; }
   .fw-controls { display: flex; align-items: center; gap: 2px; }
   .fw-btn { width: 32px; height: 32px; border: none; background: none; color: inherit; border-radius: 50%;
     display: flex; align-items: center; justify-content: center; cursor: pointer; }
   .fw-btn:hover { background: rgba(255,255,255,.1); }
-  .fw-play { width: 38px; height: 38px; background: #fff; color: #000; }
-  html[data-theme="light"] .fw-play { background: #121212; color: #fff; }
+  .fw-play { width: 38px; height: 38px; background: #4d8df0; color: #fff; border-radius: 12px; }
+  html[data-theme="light"] .fw-play { background: #2f6ed0; color: #fff; }
   .fw-btn .ic { width: 16px; height: 16px; fill: currentColor; display: block; }
   .hidden { display: none !important; }
 `;
@@ -2889,7 +2890,7 @@ function drawPipFrame() {
   ctx.textBaseline = 'middle';
   if (!lines.length) {
     ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.font = '700 26px Figtree, Segoe UI, sans-serif';
+    ctx.font = '700 26px "Plus Jakarta Sans", Segoe UI, sans-serif';
     ctx.fillText('No lyrics', w / 2, h / 2, maxW);
     return;
   }
@@ -2906,7 +2907,7 @@ function drawPipFrame() {
   const blocks = [];
   for (let i = from; i <= to; i++) {
     const active = i === idx;
-    ctx.font = active ? '800 30px Figtree, Segoe UI, sans-serif' : '600 20px Figtree, Segoe UI, sans-serif';
+    ctx.font = active ? '800 30px "Plus Jakarta Sans", Segoe UI, sans-serif' : '600 20px "Plus Jakarta Sans", Segoe UI, sans-serif';
     const wrapped = wrapCanvasText(ctx, lines[i], maxW);
     const lh = active ? 38 : 28;
     blocks.push({ i, active, wrapped, lh, h: wrapped.length * lh });
@@ -2919,8 +2920,8 @@ function drawPipFrame() {
   }
   let y = h / 2 - yOff - (activeBlock.h / 2);
   for (const b of blocks) {
-    ctx.font = b.active ? '800 30px Figtree, Segoe UI, sans-serif' : '600 20px Figtree, Segoe UI, sans-serif';
-    ctx.fillStyle = b.active ? '#1ed760' : (b.i < idx ? 'rgba(255,255,255,0.40)' : 'rgba(255,255,255,0.26)');
+    ctx.font = b.active ? '800 30px "Plus Jakarta Sans", Segoe UI, sans-serif' : '600 20px "Plus Jakarta Sans", Segoe UI, sans-serif';
+    ctx.fillStyle = b.active ? '#6ba6ff' : (b.i < idx ? 'rgba(233,239,249,0.42)' : 'rgba(233,239,249,0.26)');
     let ly = y + b.lh / 2;
     for (const t of b.wrapped) {
       ctx.fillText(t, w / 2, ly, maxW);
