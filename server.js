@@ -1,4 +1,4 @@
-/* Rich Music - backend proxy for YouTube Music InnerTube API + LRCLIB lyrics */
+/* AR Music - backend proxy for YouTube Music InnerTube API + LRCLIB lyrics */
 const express = require('express');
 const path = require('path');
 
@@ -680,7 +680,7 @@ async function neteaseLyrics(title, artist) {
 async function lrclibGet(title, artist, duration) {
   try {
     const u = `https://lrclib.net/api/get?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}${duration ? `&duration=${Math.round(duration)}` : ''}`;
-    const r = await fetchTimeout(u, { headers: { 'User-Agent': 'RichMusic/1.0' } }, 4000);
+    const r = await fetchTimeout(u, { headers: { 'User-Agent': 'ARMusic/1.0' } }, 4000);
     if (!r.ok) return null;
     const j = await r.json();
     if (j.instrumental) return null;
@@ -690,7 +690,7 @@ async function lrclibGet(title, artist, duration) {
 async function lrclibSearch(params) {
   try {
     const qs = new URLSearchParams(params).toString();
-    const r = await fetchTimeout(`https://lrclib.net/api/search?${qs}`, { headers: { 'User-Agent': 'RichMusic/1.0' } }, 4000);
+    const r = await fetchTimeout(`https://lrclib.net/api/search?${qs}`, { headers: { 'User-Agent': 'ARMusic/1.0' } }, 4000);
     if (!r.ok) return [];
     return await r.json();
   } catch { return []; }
@@ -849,7 +849,7 @@ app.get('/api/thumb', async (req, res) => {
       host.endsWith('googleusercontent.com');
     if (!ok) return res.status(400).end();
     const r = await fetch(raw, {
-      headers: { 'User-Agent': 'Mozilla/5.0 RichMusicThumb/1.0', Accept: 'image/*' },
+      headers: { 'User-Agent': 'Mozilla/5.0 ARMusicThumb/1.0', Accept: 'image/*' },
     });
     if (!r.ok) return res.status(502).end();
     res.setHeader('Content-Type', r.headers.get('content-type') || 'image/jpeg');
@@ -864,6 +864,6 @@ app.use((req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html'))
 
 const PORT = process.env.PORT || 3000;
 if (require.main === module) {
-  app.listen(PORT, '0.0.0.0', () => console.log(`Rich Music running on :${PORT}`));
+  app.listen(PORT, '0.0.0.0', () => console.log(`AR Music running on :${PORT}`));
 }
 module.exports = app;
