@@ -60,6 +60,7 @@ function toggleTheme() {
 function openNowPlaying() {
   $('#nowplaying').classList.remove('hidden');
   document.body.classList.add('np-open');
+  updatePanelButtons();
 }
 function closeNowPlaying() {
   Player.pending = null;
@@ -68,6 +69,25 @@ function closeNowPlaying() {
   renderNowPlaying();
   renderPlayButtons();
   updateLikeButtons();
+  updatePanelButtons();
+}
+function isNPOpen() { return document.body.classList.contains('np-open'); }
+function activeNPTab() { const t = $('.np-tab.active'); return t ? t.dataset.nptab : null; }
+function updatePanelButtons() {
+  const open = isNPOpen();
+  const onQueue = open && activeNPTab() === 'queue';
+  const o = $('#mini-open');
+  if (o) {
+    o.classList.toggle('on', open);
+    o.title = open ? 'Hide now playing' : 'Now playing';
+    o.setAttribute('aria-pressed', String(open));
+  }
+  // leave .title to updateQueueTab, which shows the queue count there
+  [$('#mini-queue'), $('#mini-queue-m')].forEach((b) => {
+    if (!b) return;
+    b.classList.toggle('on', onQueue);
+    b.setAttribute('aria-pressed', String(onQueue));
+  });
 }
 function focusedSong() { return Player.pending || Player.current; }
 function isPreviewing() {
@@ -1541,7 +1561,7 @@ function searchResultsHTML(sections) {
     if (!items.length) return;
     const title = SEARCH_TYPE_LABEL[t];
     html += (t === 'song' || t === 'video')
-      ? `<div class="shelf"><div class="shelf-title">${title}</dijoin('')}</div></div>`
+      ? `<div class="shelf"><div class="shelf-title">${title}</div><div class="track-list">${items.map((i) => trackRowHTML(i)).join('')}</div></div>`
       : `<div class="shelf"><div class="shelf-title">${title}</div>${carouselHTML(items.map(cardHTML).join(''))}</div>`;
   });
   return html || emptyHTML('No results', 'Try a different spelling or another artist, song, or playlist.', { ic: 'i-search' });
@@ -2443,19 +2463,29 @@ $('#mini-prev').addEventListener('click', (e) => { e.stopPropagation(); prevTrac
 $('#mini-like').addEventListener('click', (e) => { e.stopPropagation(); if (Player.current) Library.toggleFav(Player.current); });
 /* open Now Playing from art / title / expand button */
 const openNP = (e) => {
-  e.stopPropagation();
+  if (e) e.stopPropagation();
   Player.pending = null;
   renderNowPlaying();
   renderPlayButtons();
   updateLikeButtons();
   openNowPlaying();
 };
+// artwork and title only ever open; closing from them would be surprising
 $('#mini-art').addEventListener('click', openNP);
 $('.mini-meta').addEventListener('click', openNP);
-$('#mini-open').addEventListener('click', openNP);
-const openQueue = (e) => { e.stopPropagation(); openNowPlaying(); switchNPTab('queue'); };
-$('#mini-queue').addEventListener('click', openQueue);
-$('#mini-queue-m').addEventListener('click', openQueue);
+
+// the two bar buttons toggle their panel instead of only opening it
+$('#mini-open').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (isNPOpen()) closeNowPlaying(); else openNP();
+});
+const toggleQueue = (e) => {
+  e.stopPropagation();
+  if (isNPOpen() && activeNPTab() === 'queue') closeNowPlaying();
+  else { openNowPlaying(); switchNPTab('queue'); }
+};
+$('#mini-queue').addEventListener('click', toggleQueue);
+$('#mini-queue-m').addEventListener('click', toggleQueue);
 /* shuffle / repeat on the bar (synced with Now Playing buttons) */
 $('#mini-shuffle').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -2606,6 +2636,7 @@ function switchNPTab(name) {
   if (name === 'related') loadRelated();
   if (name === 'lyrics') { lastLyricIdx = -2; }
   if (name === 'queue') renderQueue();
+  updatePanelButtons();
 }
 $$('.np-tab').forEach((t) => t.addEventListener('click', () => switchNPTab(t.dataset.nptab)));
 

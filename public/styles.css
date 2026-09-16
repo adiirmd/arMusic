@@ -311,6 +311,12 @@ html[data-theme="light"] .tb-btn { background: rgba(0, 0, 0, 0.08); color: var(-
 }
 .chip:hover { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scale(1.03); }
 .chip.active { background: var(--chip-on-bg); color: var(--chip-on-fg); font-weight: 700; }
+/* search filter row — this class had no rules, so the results below it
+   started immediately under the chips with no breathing room */
+.search-chips {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin: 4px 0 26px;
+}
 
 /* recently-played tiles */
 .quick-grid {
@@ -1537,6 +1543,10 @@ body.on-search #tb-search { display: none; }
    which squeezed .tmeta down to a character or two in Queue and Related.
    Same treatment as phones: keep the overflow menu, which already offers
    move up / move down / remove from queue. */
+/* a short window must shrink the body, never the header or the tab row */
+#nowplaying .np-topbar, #nowplaying .np-tabs { flex-shrink: 0; }
+#nowplaying .np-inner { overflow: hidden; }
+
 #nowplaying .track { gap: 10px; padding: 8px 6px; }
 #nowplaying .track .tbtn { display: none; }
 #nowplaying .track .btn-more { display: inline-flex !important; opacity: 1; }
@@ -1546,3 +1556,6 @@ body.on-search #tb-search { display: none; }
 #nowplaying .track .tdur { min-width: 34px; font-size: 12px; }
 #nowplaying .track img { width: 38px; height: 38px; }
 #nowplaying .q-note, #nowplaying .q-hint { font-size: 12.5px; line-height: 1.5; }
+
+/* panel toggles in the player bar light up while their panel is showing */
+#mini-open.on, #mini-queue.on, #mini-queue-m.on { color: var(--accent-bright); }
