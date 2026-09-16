@@ -6,6 +6,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Versi rilis, misal 1.0.0. Kosongkan untuk build uji tanpa membuat rilis."
+        required: false
+        default: ""
 
 permissions:
   contents: write        # dibutuhkan hanya untuk membuat Release
@@ -98,8 +103,11 @@ jobs:
 
       - name: Beri nama berkas sesuai versi
         run: |
-          VER="${GITHUB_REF_NAME#v}"
-          [ "$VER" = "$GITHUB_REF_NAME" ] && VER="dev-${GITHUB_SHA::7}"
+          VER="${{ inputs.version }}"
+          if [ -z "$VER" ]; then
+            VER="${GITHUB_REF_NAME#v}"
+            [ "$VER" = "$GITHUB_REF_NAME" ] && VER="dev-${GITHUB_SHA::7}"
+          fi
           mkdir -p out
           cp "$APK_PATH" "out/ARMusic-${VER}.apk"
           cp app/build/outputs/bundle/release/*.aab "out/ARMusic-${VER}.aab"
@@ -112,9 +120,14 @@ jobs:
           path: android/out/*
 
       - name: Publikasikan Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        # Tag bisa datang dari push tag, atau dibuat langsung oleh action ini
+        # saat dijalankan manual dengan input versi.
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', inputs.version) }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}', inputs.version) }}
           files: |
             android/out/*.apk
             android/out/*.aab
