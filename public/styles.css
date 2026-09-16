@@ -301,14 +301,17 @@ html[data-theme="light"] .tb-btn { background: rgba(0, 0, 0, 0.08); color: var(-
 .tb-search .ic { width: 20px; height: 20px; }
 .tb-search:hover { background: var(--card-hover); color: var(--text); }
 .tb-actions { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
-#view { max-width: 1480px; margin: 0 auto; padding: 24px 24px 48px; }
+/* Topbarnya sticky setinggi 66px dan isinya lewat di bawahnya, jadi jarak
+   yang terasa pas di mockup terlihat mepet begitu ada judul sebesar
+   .page-title di bawahnya. Layar kecil punya nilainya sendiri di bawah. */
+#view { max-width: 1480px; margin: 0 auto; padding: 44px 24px 48px; }
 #view.view-enter { animation: fadeUp 0.38s ease; }
 .page-title {
   font-size: clamp(24px, 3vw, 30px);
   font-weight: 800; margin-bottom: 22px;
   letter-spacing: -0.03em; line-height: 1.15;
 }
-.hello-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+.hello-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 30px; }
 .hello-row .page-title { margin-bottom: 0; }
 .greeting { font-size: 13px; color: var(--muted); margin-bottom: 4px; font-weight: 600; text-transform: capitalize; }
 
@@ -1699,7 +1702,7 @@ html.in-app input { -webkit-user-select: text; user-select: text; }
 /* ---------- ajakan pindah ke aplikasi (browser Android saja) ---------- */
 #app-banner {
   display: flex; align-items: center; gap: 12px;
-  margin: 24px 24px 0; padding: 12px 14px;
+  margin: 44px 24px 0; padding: 12px 14px;
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--card);
 }
