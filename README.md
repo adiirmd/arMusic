@@ -129,5 +129,7 @@ vercel.json       konfigurasi build dan routing
 ## Catatan
 
 - Pemutaran butuh akses ke `youtube.com`. Di jaringan yang memblokirnya, aplikasi tetap terbuka dan metadata tetap muncul, tapi lagu tidak akan berbunyi.
+- Pemutaran di latar belakang bergantung pada platform. Di browser desktop, audio jalan terus saat tab dipindah, dan tombol media di keyboard maupun kontrol sistem berfungsi. Di browser ponsel, mengunci layar atau berpindah aplikasi bisa membuat browser menghentikan pemutar YouTube yang tertanam; aplikasi akan mencoba melanjutkan sendiri, tapi ini tidak selalu bisa ditolak. Gunakan Picture-in-Picture agar pemutaran tetap jalan saat berpindah aplikasi.
+- Kalau dibungkus jadi aplikasi Android, pemutaran latar belakang perlu penyetelan di sisi native, yaitu foreground service dan MediaSession. Itu di luar cakupan repo ini.
 - Aplikasi ini bergantung pada API internal YouTube Music yang tidak berdokumentasi resmi dan bisa berubah sewaktu-waktu tanpa pemberitahuan.
 - Dibuat untuk keperluan pribadi dan pembelajaran.
