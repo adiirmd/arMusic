@@ -561,7 +561,7 @@ html[data-theme="light"] .detail-head .detail-info h1 { color: #0d1b2f; }
   border-radius: 999px; padding: 12px 18px; margin-bottom: 12px;
   border: 2px solid transparent; transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
-.search-bar:focus-within { border-color: var(--text); background: var(--card-hover); box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 8%, transparent); }
+.search-bar:focus-within { border-color: var(--accent); background: var(--card-hover); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
 .search-bar input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 15px; font-weight: 500; }
 .search-bar input::placeholder { color: var(--muted); }
 .suggest { display: flex; flex-direction: column; margin-bottom: 14px; }
@@ -671,9 +671,16 @@ body.np-open.has-player #nowplaying { margin-bottom: var(--player-h); }
 .pb-bar:hover .pb-knob { opacity: 1; }
 
 .pb-right { display: flex; align-items: center; gap: 9px; justify-self: end; }
-.pb-vol-ic { color: var(--muted); line-height: 0; }
+.pb-vol-ic, .vol-btn {
+  color: var(--muted); line-height: 0; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 6px; border-radius: 50%;
+  transition: color 0.15s, background 0.12s;
+}
+.pb-vol-ic:hover, .vol-btn:hover { color: var(--text); background: var(--hover); }
+.pb-vol-ic.muted, .vol-btn.muted { color: var(--accent-bright); }
 .pb-vol-ic .ic { width: 16px; height: 16px; }
-.vol-ic { width: 16px; height: 16px; color: var(--muted); }
+.vol-ic { width: 16px; height: 16px; color: currentColor; }
 #mini-volume, #np-volume { accent-color: var(--bar-fill); height: 4px; cursor: pointer; }
 #mini-volume { width: 93px; }
 #mini-volume:hover, #np-volume:hover { accent-color: var(--accent-bright); }
@@ -1445,4 +1452,43 @@ input, select, textarea { font-size: 16px; }
 @media (max-width: 480px) {
   #mini-like, #mini-float { display: none; }
   .mini-meta { flex: 1; min-width: 0; }
+}
+
+/* ---------- search page ---------- */
+/* the Search view renders its own bar; showing the topbar one too reads as a bug */
+body.on-search #tb-search { display: none; }
+
+/* recent searches */
+.recent-head { margin-bottom: 12px; }
+.recent-row {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 30px;
+}
+.recent-chip {
+  display: inline-flex; align-items: center; max-width: 100%;
+  background: var(--hover-strong); border-radius: 999px;
+  transition: background 0.15s;
+}
+.recent-chip:hover { background: color-mix(in srgb, var(--text) 16%, transparent); }
+.recent-go {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 8px 4px 8px 14px;
+  font-size: 13.5px; font-weight: 600; color: var(--text);
+  border-radius: 999px 0 0 999px;
+}
+.recent-go .ic { width: 15px; height: 15px; color: var(--muted); flex-shrink: 0; }
+.recent-go > span {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.recent-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 12px 8px 6px; color: var(--subdued); flex-shrink: 0;
+  border-radius: 0 999px 999px 0; line-height: 0;
+}
+.recent-x .ic { width: 13px; height: 13px; }
+.recent-x:hover { color: var(--text); }
+
+@media (max-width: 860px) {
+  /* one long query per row beats a chip squeezed to three letters */
+  .recent-go { max-width: calc(100vw - 96px); }
 }

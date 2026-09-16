@@ -1332,6 +1332,8 @@ function renderNav() {
   renderSidebarLibrary();
 }
 function setActiveNav(id) {
+  // the Search page has its own search bar; the topbar one would be a duplicate
+  document.body.classList.toggle('on-search', id === 'search');
   $$('.nav-item').forEach((el) => {
     const active = el.dataset.id === id;
     el.classList.toggle('active', active);
@@ -1918,6 +1920,7 @@ function restoreLibrary() {
             $('#mini-volume').value = d.settings.vol;
             $('#np-volume').value = d.settings.vol;
             if (Player.yt && Player.ready) Player.yt.setVolume(d.settings.vol);
+            updateVolumeIcon();
           }
           if (typeof d.settings.sb_on === 'boolean') {
             store.set('sb_on', d.settings.sb_on);
@@ -2481,9 +2484,50 @@ $('#mini-repeat').addEventListener('click', (e) => {
   toast(['Repeat off', 'Repeat all', 'Repeat one'][Player.repeat]);
 });
 /* volume on the bar */
+/* ---- mute / unmute ---- */
+Player.lastVol = null;
+function isMuted() { return Number($('#mini-volume').value) === 0; }
+function applyVolume(v, remember) {
+  const vol = Math.max(0, Math.min(100, Number(v) || 0));
+  if (Player.yt && Player.ready) {
+    Player.yt.setVolume(vol);
+    // the IFrame player keeps its own mute flag; volume 0 alone would not clear it
+    if (vol === 0) Player.yt.mute(); else Player.yt.unMute();
+  }
+  $('#mini-volume').value = vol;
+  $('#np-volume').value = vol;
+  if (remember) store.set('vol', vol);
+  updateVolumeIcon();
+}
+function updateVolumeIcon() {
+  const muted = isMuted();
+  ['#mini-mute', '#np-mute'].forEach((sel) => {
+    const btn = $(sel);
+    if (!btn) return;
+    const use = btn.querySelector('use');
+    if (use) use.setAttribute('href', muted ? '#i-volume-x' : '#i-volume');
+    btn.classList.toggle('muted', muted);
+    btn.title = muted ? 'Unmute' : 'Mute';
+    btn.setAttribute('aria-label', btn.title);
+  });
+}
+function toggleMute() {
+  if (isMuted()) {
+    // restore what was playing before; fall back if the last level was also 0
+    applyVolume(Player.lastVol && Player.lastVol > 0 ? Player.lastVol : 100, true);
+  } else {
+    Player.lastVol = Number($('#mini-volume').value);
+    applyVolume(0, false); // keep the stored level so a reload is not silent
+  }
+}
+$('#mini-mute') && $('#mini-mute').addEventListener('click', toggleMute);
+$('#np-mute') && $('#np-mute').addEventListener('click', toggleMute);
+
 $('#mini-volume').addEventListener('input', (e) => {
   if (Player.yt && Player.ready) Player.yt.setVolume(Number(e.target.value));
+  if (Player.yt && Player.ready) { if (Number(e.target.value) === 0) Player.yt.mute(); else Player.yt.unMute(); }
   $('#np-volume').value = e.target.value;
+  updateVolumeIcon();
 });
 /* click-to-seek on the bar */
 $('#mini-bar').addEventListener('click', (e) => {
@@ -2543,7 +2587,9 @@ $('#np-quality').addEventListener('click', toggleQuality);
 $('#np-sb').addEventListener('click', toggleSB);
 $('#np-volume').addEventListener('input', (e) => {
   if (Player.yt) Player.yt.setVolume(Number(e.target.value));
+  if (Player.yt && Player.ready) { if (Number(e.target.value) === 0) Player.yt.mute(); else Player.yt.unMute(); }
   $('#mini-volume').value = e.target.value;
+  updateVolumeIcon();
 });
 $('#np-lyric-preview').addEventListener('click', () => switchNPTab('lyrics'));
 $('#np-sleep').addEventListener('click', openSleepTimer);
@@ -3053,6 +3099,7 @@ enableDrag($('#float-widget'));
 const savedVol = store.get('vol', 100);
 $('#mini-volume').value = savedVol;
 $('#np-volume').value = savedVol;
+updateVolumeIcon();
 $('#mini-volume').addEventListener('change', (e) => store.set('vol', Number(e.target.value)));
 $('#np-volume').addEventListener('change', (e) => store.set('vol', Number(e.target.value)));
 document.addEventListener('error', (e) => {
