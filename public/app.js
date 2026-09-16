@@ -501,10 +501,6 @@ function startCurrent() {
     // without these the lock screen shows no scrubber and no skip buttons
     on('seekbackward', (d) => seekRelative(-(d && d.seekOffset ? d.seekOffset : 10)));
     on('seekforward', (d) => seekRelative(d && d.seekOffset ? d.seekOffset : 10));
-    // Chrome puts a picture-in-picture button on the media notification when
-    // this exists. It is the only way to reach the widget without the tab
-    // being focused first, and the widget is what keeps audio alive.
-    on('enterpictureinpicture', () => { openFloatWidget(); });
     on('seekto', (d) => {
       if (!Player.yt || !d || d.fastSeek === true) return;
       try { Player.yt.seekTo(d.seekTime, true); } catch {}
@@ -620,10 +616,6 @@ window.ARMusicCloseOverlay = function () {
   if (modal && !modal.classList.contains('hidden')) { modal.classList.add('hidden'); return true; }
   if (isNPOpen()) { closeNowPlaying(); return true; }
   return false;
-};
-/* The shell opens the player before shrinking into a PiP window. */
-window.ARMusicOpenPlayer = function () {
-  try { if (Player.current) { openNowPlaying(); switchNPTab('player'); } } catch {}
 };
 /* Transport buttons on the notification land here. */
 window.ARMusicCommand = function (cmd) {
@@ -3302,7 +3294,7 @@ document.addEventListener('visibilitychange', () => {
     try { st = Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch {}
     if (st === YT.PlayerState.PAUSED) {
       bgHintShown = true;
-      toast('Browser ini menghentikan musik saat tab ditinggal. Pakai tombol Widget di player agar tetap jalan.');
+      toast('Browser ini menghentikan musik saat tabnya ditinggal. Pakai aplikasi Android AR Music kalau mau dengar sambil buka aplikasi lain.');
     }
   }
   bgResumeTries = 0;
