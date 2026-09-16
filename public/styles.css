@@ -301,7 +301,7 @@ html[data-theme="light"] .tb-btn { background: rgba(0, 0, 0, 0.08); color: var(-
 .tb-search .ic { width: 20px; height: 20px; }
 .tb-search:hover { background: var(--card-hover); color: var(--text); }
 .tb-actions { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
-#view { max-width: 1480px; margin: 0 auto; padding: 8px 24px 48px; }
+#view { max-width: 1480px; margin: 0 auto; padding: 24px 24px 48px; }
 #view.view-enter { animation: fadeUp 0.38s ease; }
 .page-title {
   font-size: clamp(24px, 3vw, 30px);
@@ -809,7 +809,7 @@ html[data-theme="light"] #np-bg::after {
   display: flex; align-items: center; justify-content: center;
 }
 .np-topbar .icon-btn:hover { color: #fff; background: rgba(0, 0, 0, 0.55); }
-.np-tabs { display: flex; gap: 8px; justify-content: center; margin: 12px 0 6px; flex-wrap: wrap; }
+.np-tabs { display: flex; gap: 8px; justify-content: center; margin: 14px 0 16px; flex-wrap: wrap; }
 .np-tab {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 7px 16px; border-radius: 999px; font-size: 13px;
@@ -1220,13 +1220,13 @@ body.hq-audio #yt-player {
   #nowplaying .np-tabs {
     flex-wrap: nowrap;
     gap: 4px;
-    margin: 8px 0 4px;
+    margin: 10px 0 16px;
     justify-content: flex-start;
   }
   #nowplaying .np-tab { padding: 5px 9px; font-size: 11.5px; }
   #nowplaying .np-tab .ic { display: none; }
   #nowplaying .np-body { min-height: 0; }
-  #nowplaying .np-pane { padding: 6px 0 0; }
+  #nowplaying .np-pane { padding: 8px 0 0; }
   #nowplaying #np-player.active {
     justify-content: flex-start;
     align-items: stretch;
@@ -1310,7 +1310,7 @@ body.hq-audio #yt-player {
   #mini-shuffle, #mini-repeat { display: none; }
   #mini-title { font-size: 13px; }
   .play-circle { width: 34px; height: 34px; }
-  #view { padding: 18px 16px 30px; }
+  #view { padding: 26px 16px 30px; }
   .sr-top { flex-direction: row; gap: 14px; padding: 12px; }
   .sr-top img, .sr-top .art-ph-sr { width: 92px; height: 92px; }
   .sr-title { font-size: 20px; }
@@ -1369,12 +1369,12 @@ body.hq-audio #yt-player {
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
-    margin: 6px 0 2px;
+    margin: 8px 0 18px;
     gap: 6px;
   }
   .np-tabs::-webkit-scrollbar { display: none; }
   .np-tab { padding: 6px 12px; font-size: 12px; flex-shrink: 0; }
-  .np-pane { padding: 4px 0; }
+  .np-pane { padding: 6px 0 4px; }
   #np-player.active {
     justify-content: space-between;
     gap: 8px;
@@ -1515,7 +1515,7 @@ input, select, textarea { font-size: 16px; }
 
 /* very small phones: keep the two-up grid from collapsing into slivers */
 @media (max-width: 380px) {
-  #view { padding: 14px 12px 28px; }
+  #view { padding: 22px 12px 28px; }
   .quick-grid { grid-template-columns: 1fr; }
   .detail-info h1 { font-size: 22px; }
   .detail-head img, .detail-head .detail-ph { width: 96px; height: 96px; }
@@ -1699,7 +1699,7 @@ html.in-app input { -webkit-user-select: text; user-select: text; }
 /* ---------- ajakan pindah ke aplikasi (browser Android saja) ---------- */
 #app-banner {
   display: flex; align-items: center; gap: 12px;
-  margin: 0 0 18px; padding: 12px 14px;
+  margin: 24px 24px 0; padding: 12px 14px;
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--card);
 }
@@ -1723,6 +1723,11 @@ html.in-app input { -webkit-user-select: text; user-select: text; }
 .ab-close { flex: none; color: var(--muted); padding: 4px; }
 .ab-close:hover { color: var(--text); }
 .ab-close .ic { width: 15px; height: 15px; }
+
+/* pinggirannya harus sama dengan padding #view, atau banner tidak segaris
+   dengan judul dan rak di bawahnya */
+@media (max-width: 860px) { #app-banner { margin: 26px 16px 0; } }
+@media (max-width: 380px) { #app-banner { margin: 22px 12px 0; } }
 
 @media (max-width: 520px) {
   /* di layar sempit tombolnya turun sendiri, judulnya tidak perlu terpotong */
