@@ -1421,12 +1421,12 @@ function renderSidebarLibrary() {
   if (favs.length) {
     html += `<button class="lib-row" data-nav="#/library/favorites">
       <span class="lib-ph liked-ph">${icon('i-heart-f')}</span>
-      <span class="lr-meta"><span class="lr-t">Liked Songs</span><br><span class="lr-s">Playlist · ${favs.length} songs</span></span>
+      <span class="lr-meta"><span class="lr-t">Liked Songs</span><br><span class="lr-s">Playlist · ${favs.length} song${favs.length === 1 ? '' : 's'}</span></span>
     </button>`;
   }
   html += pls.map((p) => `<button class="lib-row" data-nav="#/localpl/${p.id}">
       ${coverHTML(p.tracks[0] && p.tracks[0].thumbnail, 'lib')}
-      <span class="lr-meta"><span class="lr-t">${esc(p.name)}</span><br><span class="lr-s">Playlist · ${p.tracks.length} songs</span></span>
+      <span class="lr-meta"><span class="lr-t">${esc(p.name)}</span><br><span class="lr-s">Playlist · ${p.tracks.length} song${p.tracks.length === 1 ? '' : 's'}</span></span>
     </button>`).join('');
   html += saved.map((it) => `<button class="lib-row ${it.type === 'artist' ? 'round' : ''}" data-item='${esc(JSON.stringify(it))}'>
       ${coverHTML(it.thumbnail, 'lib')}
@@ -1512,7 +1512,7 @@ async function viewHome(view) {
     html += `<div class="shelf"><div class="shelf-title">Your playlists</div>
       ${carouselHTML(pls.map((p) => `<div class="card" data-pl="${esc(p.id)}">
         <div class="art">${coverHTML(p.tracks[0] && p.tracks[0].thumbnail)}<div class="play-ov">${icon('i-play')}</div></div>
-        <div class="t">${esc(p.name)}</div><div class="s">${p.tracks.length} songs</div>
+        <div class="t">${esc(p.name)}</div><div class="s">${p.tracks.length} song${p.tracks.length === 1 ? '' : 's'}</div>
       </div>`).join(''))}</div>`;
   }
   if (saved.length) {
@@ -1878,7 +1878,7 @@ function viewLibrary(view, tab) {
         <button class="pill-btn" id="btn-backup">${icon('i-download')}<span>Backup</span></button>
         <button class="pill-btn" id="btn-restore">${icon('i-upload')}<span>Restore</span></button>
       </div>`;
-    const cards = (Library.favorites.length ? likedCardHTML() : '') + pls.map((p) => `<div class="card" data-pl="${p.id}"><div class="art">${coverHTML(p.tracks[0] && p.tracks[0].thumbnail)}<div class="play-ov">${icon('i-play')}</div></div><div class="t">${esc(p.name)}</div><div class="s">${p.tracks.length} songs</div></div>`).join('');
+    const cards = (Library.favorites.length ? likedCardHTML() : '') + pls.map((p) => `<div class="card" data-pl="${p.id}"><div class="art">${coverHTML(p.tracks[0] && p.tracks[0].thumbnail)}<div class="play-ov">${icon('i-play')}</div></div><div class="t">${esc(p.name)}</div><div class="s">${p.tracks.length} song${p.tracks.length === 1 ? '' : 's'}</div></div>`).join('');
     body += cards
       ? `<div class="lib-grid">${cards}</div>`
       : emptyHTML('No playlists yet', 'Use New playlist above, or import one from YouTube Music.', { ic: 'i-note' });
@@ -1961,7 +1961,7 @@ async function importFromLink(url) {
   const name = (d.header && d.header.title) || 'Imported playlist';
   const pl = Library.createPlaylist(name);
   d.tracks.forEach((t) => Library.addToPlaylist(pl.id, songFromItem(t)));
-  toast(`Imported "${name}" (${d.tracks.length} songs)`);
+  toast(`Imported "${name}" (${d.tracks.length} song${d.tracks.length === 1 ? '' : 's'})`);
   if ((location.hash || '').startsWith('#/library')) route();
   else go('#/library');
 }

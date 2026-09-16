@@ -299,7 +299,7 @@ html[data-theme="light"] .tb-btn { background: rgba(0, 0, 0, 0.08); color: var(-
   transition: background 0.15s, box-shadow 0.15s, color 0.15s, transform 0.15s;
 }
 .tb-search .ic { width: 20px; height: 20px; }
-.tb-search:hover { background: var(--card-hover); color: var(--text); transform: scale(1.01); }
+.tb-search:hover { background: var(--card-hover); color: var(--text); }
 .tb-actions { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
 #view { max-width: 1480px; margin: 0 auto; padding: 8px 24px 48px; }
 #view.view-enter { animation: fadeUp 0.38s ease; }
@@ -319,7 +319,7 @@ html[data-theme="light"] .tb-btn { background: rgba(0, 0, 0, 0.08); color: var(-
   border-radius: 999px; font-size: 13px; color: var(--text); font-weight: 600;
   transition: background 0.15s, color 0.15s, transform 0.15s;
 }
-.chip:hover { background: color-mix(in srgb, var(--text) 18%, transparent); transform: scale(1.03); }
+.chip:hover { background: color-mix(in srgb, var(--text) 18%, transparent); }
 .chip.active { background: var(--chip-on-bg); color: var(--chip-on-fg); font-weight: 700; }
 /* search filter row — this class had no rules, so the results below it
    started immediately under the chips with no breathing room */
@@ -401,7 +401,7 @@ html[data-theme="light"] .car-btn {
   transition: background 0.22s, transform 0.22s;
   position: relative;
 }
-.card:hover { background: var(--card-hover); transform: translateY(-3px); }
+.card:hover { background: var(--card-hover); }
 .card .art {
   position: relative; width: 162px; height: 162px; border-radius: 8px; overflow: hidden;
   background: var(--elevated); box-shadow: var(--shadow);
@@ -562,7 +562,7 @@ html[data-theme="light"] .detail-head .detail-info h1 { color: #0d1b2f; }
   transition: transform 0.12s, border-color 0.15s, background 0.15s;
 }
 .pill-btn .ic { width: 15px; height: 15px; }
-.pill-btn:hover { border-color: var(--text); transform: scale(1.04); }
+.pill-btn:hover { border-color: var(--text); background: var(--hover); }
 .pill-btn.primary {
   background: var(--accent); border-color: transparent; color: var(--play-fg);
   padding: 13px 28px; font-size: 15px; border-radius: 14px;
@@ -606,7 +606,7 @@ html[data-theme="light"] .detail-head .detail-info h1 { color: #0d1b2f; }
   text-align: left; cursor: pointer;
   transition: background 0.18s, transform 0.18s;
 }
-.sr-top:hover { background: var(--card-hover); transform: translateY(-2px); }
+.sr-top:hover { background: var(--card-hover); }
 .sr-top img, .sr-top .art-ph-sr {
   width: 148px; height: 148px; border-radius: var(--radius);
   object-fit: cover; flex-shrink: 0; box-shadow: var(--shadow);
@@ -641,14 +641,36 @@ html[data-theme="light"] .detail-head .detail-info h1 { color: #0d1b2f; }
   display: flex; align-items: flex-start;
   transition: transform 0.18s, filter 0.18s;
 }
-.mood-card:hover { transform: scale(1.04); filter: brightness(1.08); }
+.mood-card:hover { filter: brightness(1.1); }
 .mood-card::after {
   content: "♪"; position: absolute; right: -6px; bottom: -10px;
   font-size: 64px; opacity: 0.28; transform: rotate(22deg);
 }
 
 /* library */
-.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 6px; }
+/* ---------- library ---------- */
+.lib-actions {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  margin: 0 0 26px;
+}
+.lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 16px;
+}
+/* .card carries a fixed width for the carousels; inside a grid it has to
+   fill its own cell instead, or every tile floats in a half-empty column */
+.lib-grid .card { width: auto; }
+.lib-grid .card .art { width: 100%; height: auto; aspect-ratio: 1; }
+
+/* Liked Songs tile — these three classes had no rules at all */
+.card .art.liked-cover {
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #3b6fd4 0%, #4d8df0 55%, #7cc4f0 100%);
+  color: #fff;
+}
+.liked-cover .liked-heart { width: 36%; height: 36%; fill: currentColor; }
+.liked-card .t { color: var(--text); }
 .empty-note { color: var(--muted); font-size: 14.5px; padding: 48px 0; text-align: center; font-weight: 500; }
 
 /* ---------- player bar ---------- */
@@ -1628,3 +1650,15 @@ body.on-search #tb-search { display: none; }
   transition: background 0.15s, color 0.15s;
 }
 #lyr-earlier:hover, #lyr-later:hover { color: #fff; background: hsla(0, 0%, 100%, 0.2); }
+
+/* library: comfortable at every width */
+@media (max-width: 860px) {
+  .lib-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .lib-actions { gap: 8px; margin-bottom: 20px; }
+  /* the main action takes its own row; the rest share what is left */
+  .lib-actions .pill-btn { flex: 1 1 auto; justify-content: center; }
+  .lib-actions .pill-btn.primary { flex: 1 1 100%; }
+}
+@media (max-width: 420px) {
+  .lib-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+}
