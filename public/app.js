@@ -306,8 +306,6 @@ window.onYouTubeIframeAPIReady = () => {
         if (e.data === YT.PlayerState.BUFFERING) applyPlaybackQuality();
         if (e.data === YT.PlayerState.PLAYING) Player.wantPlaying = true;
         resumeIfBackgroundPause(e.data);
-        if (e.data === YT.PlayerState.PLAYING) keepAlivePlay();
-        else if (e.data === YT.PlayerState.PAUSED) keepAlivePause();
         syncMediaSession(e.data === YT.PlayerState.PLAYING);
         document.body.classList.toggle('paused', e.data !== YT.PlayerState.PLAYING);
         renderPlayButtons();
@@ -3255,62 +3253,25 @@ function toggleFloatWidget() {
   else openFloatWidget();
 }
 
-/* ---------- keeping audio alive when the page is not on screen ----------
+/* ---------- the page is not on screen ----------
  *
- * On a desktop browser a background tab keeps playing on its own. On a phone
- * browser it stops, and there are three moves here, in this order:
+ * What was tried, and what it settled, so nobody spends another evening on it:
  *
- *   1. Keep a silent track running in the page itself. A browser treats a
- *      hidden page that is still playing media far more gently than an idle
- *      one. The sound we care about lives in a cross-origin frame the page
- *      cannot reach, so this gives the page a player of its own.
- *   2. Ask the embedded player to carry on. The request is made from the
- *      player's own pause event, which still arrives while timers are
- *      throttled, so it happens at once instead of a second later.
- *   3. When the browser refuses anyway, say so plainly and point at the
- *      Android app, where this is properly solved.
+ *   - Desktop browser: a background tab keeps playing on its own, always has.
+ *   - Phone browser: it stops, and nothing the page does changes that.
+ *     Asking the embedded player to carry on is refused. Giving the page a
+ *     silent track of its own, so it counts as a page that is playing media,
+ *     changed nothing. Requesting the desktop site changed nothing either,
+ *     which rules out the player simply recognising a phone.
+ *
+ * What is left standing is the browser's own rule: a hidden page does not get
+ * to keep playing media that carries a video track, and the sound here comes
+ * from a YouTube frame that does carry one. That rule lives below the page, so
+ * the page cannot argue with it. The Android app gets around it honestly, by
+ * never telling its WebView that it is hidden — see BackgroundWebView there.
+ *
+ * So the only thing left to do here is to ask once, and then say so plainly.
  */
-
-/* A second of digital silence, built here so there is no asset to fetch.
-   Silence and not a quiet tone on purpose: nothing can leak into headphones. */
-function silentTrackURL() {
-  const rate = 8000, n = rate;
-  const buf = new ArrayBuffer(44 + n);
-  const v = new DataView(buf);
-  const tag = (at, text) => { for (let i = 0; i < text.length; i++) v.setUint8(at + i, text.charCodeAt(i)); };
-  tag(0, 'RIFF'); v.setUint32(4, 36 + n, true); tag(8, 'WAVE');
-  tag(12, 'fmt '); v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate, true);
-  v.setUint16(32, 1, true); v.setUint16(34, 8, true);
-  tag(36, 'data'); v.setUint32(40, n, true);
-  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128); // 128 is silence for 8-bit
-  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-}
-
-let keepAlive = null;
-/* iOS is left out: there a second audio element can interrupt the one that is
-   already playing, which would break the very thing this tries to protect.
-   Inside the Android app it is not needed — the shell handles it. */
-function keepAliveUseless() {
-  return /iP(hone|ad|od)/.test(navigator.userAgent) ||
-    document.documentElement.classList.contains('in-app');
-}
-
-function keepAlivePlay() {
-  if (keepAliveUseless()) return;
-  try {
-    if (!keepAlive) {
-      keepAlive = new Audio(silentTrackURL());
-      keepAlive.loop = true;
-      keepAlive.preload = 'auto';
-    }
-    if (keepAlive.paused) keepAlive.play().catch(() => {});
-  } catch {}
-}
-function keepAlivePause() {
-  try { if (keepAlive && !keepAlive.paused) keepAlive.pause(); } catch {}
-}
 const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
 let bgHintShown = false;
@@ -3331,14 +3292,21 @@ document.addEventListener('visibilitychange', () => {
   // timers are throttled in the background, so the UI is stale on return
   syncPlaybackUI();
   renderPlayButtons();
-  // Came back to a track that should be running but is not: the browser won
-  // that argument, so offer the one thing that does work.
-  if (!bgHintShown && Player.wantPlaying && !Player.cued && bgResumeTries >= BG_RESUME_MAX) {
-    let st = -1;
-    try { st = Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch {}
-    if (st === YT.PlayerState.PAUSED) {
+
+  // Back on screen with a track that should be running but is not. The pause
+  // came from the browser, not from the listener — wantPlaying says so — and
+  // the page is allowed to play again now that it is visible, so carry on from
+  // where it stopped instead of making someone hunt for the play button.
+  let st = -1;
+  try { st = Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch {}
+  if (Player.wantPlaying && !Player.cued && st === YT.PlayerState.PAUSED) {
+    try { Player.yt.playVideo(); } catch {}
+    // Say why it happened, once on this device. Nagging about it every time
+    // someone checks a message would be worse than the silence was.
+    if (!bgHintShown && !store.get('bgnote', false)) {
       bgHintShown = true;
-      toast('Browser di HP menghentikan musik saat tabnya ditinggal. Pakai aplikasi Android AR Music untuk dengar di latar belakang.');
+      store.set('bgnote', true);
+      toast('Browser di HP selalu menghentikan musik saat tabnya ditinggal. Pakai aplikasi Android AR Music kalau mau dengar sambil buka aplikasi lain.');
     }
   }
   bgResumeTries = 0;
