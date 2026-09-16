@@ -311,7 +311,13 @@ html[data-theme="light"] .tb-btn { background: rgba(0, 0, 0, 0.08); color: var(-
   font-weight: 800; margin-bottom: 22px;
   letter-spacing: -0.03em; line-height: 1.15;
 }
-.hello-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 30px; }
+/* Sapaan halaman dipusatkan, jadi kepala halaman berdiri sendiri sebagai
+   blok dan tidak lagi terbaca menempel ke sudut kiri atas. Isi di bawahnya
+   tetap rata kiri. */
+.hello-row {
+  display: flex; align-items: flex-end; justify-content: center;
+  gap: 12px; margin-bottom: 30px; text-align: center;
+}
 .hello-row .page-title { margin-bottom: 0; }
 .greeting { font-size: 13px; color: var(--muted); margin-bottom: 4px; font-weight: 600; text-transform: capitalize; }
 
