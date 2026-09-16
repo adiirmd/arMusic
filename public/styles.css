@@ -1695,3 +1695,38 @@ html.in-app #app {
 html.in-app { -webkit-touch-callout: none; }
 html.in-app body { -webkit-user-select: none; user-select: none; }
 html.in-app input { -webkit-user-select: text; user-select: text; }
+
+/* ---------- ajakan pindah ke aplikasi (browser Android saja) ---------- */
+#app-banner {
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 0 18px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--card);
+}
+#app-banner.hidden { display: none; }
+.ab-ic {
+  flex: none; width: 38px; height: 38px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff;
+}
+.ab-ic .ic { width: 19px; height: 19px; }
+.ab-text { flex: 1; min-width: 0; }
+.ab-title { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+.ab-sub { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+.ab-get {
+  flex: none; padding: 8px 16px; border-radius: 999px;
+  background: var(--accent); color: #fff;
+  font-size: 13px; font-weight: 700; text-decoration: none;
+  transition: background 0.15s;
+}
+.ab-get:hover { background: var(--accent-bright); }
+.ab-close { flex: none; color: var(--muted); padding: 4px; }
+.ab-close:hover { color: var(--text); }
+.ab-close .ic { width: 15px; height: 15px; }
+
+@media (max-width: 520px) {
+  /* di layar sempit tombolnya turun sendiri, judulnya tidak perlu terpotong */
+  #app-banner { flex-wrap: wrap; gap: 10px; }
+  .ab-text { flex: 1 1 60%; }
+  .ab-get { flex: 1 1 100%; order: 3; text-align: center; padding: 10px 16px; }
+}

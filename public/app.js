@@ -3253,6 +3253,35 @@ function toggleFloatWidget() {
   else openFloatWidget();
 }
 
+/* ---------- pointing Android browsers at the app ----------
+ *
+ * The web version cannot play in the background on a phone — see the note
+ * below for why — so rather than letting the music die quietly, say where the
+ * version that can is. Only where it is true and useful:
+ *
+ *   - Android browsers only. There is no iOS build to send anyone to, and on
+ *     a desktop browser background playback already works.
+ *   - Not inside the app itself, which is already the answer.
+ *   - Once. Dismissed is dismissed, remembered on the device.
+ */
+function maybeShowAppBanner() {
+  const el = $('#app-banner');
+  if (!el) return;
+  const onAndroidBrowser =
+    /Android/i.test(navigator.userAgent) &&
+    !document.documentElement.classList.contains('in-app');
+  if (!onAndroidBrowser || store.get('appbanner_off', false)) return;
+  el.classList.remove('hidden');
+}
+$('#ab-close')?.addEventListener('click', () => {
+  store.set('appbanner_off', true);
+  $('#app-banner').classList.add('hidden');
+});
+// tapping through to the release is an answer too, so stop asking
+$('#ab-get')?.addEventListener('click', () => { store.set('appbanner_off', true); });
+/* The app tags the page after load, so the check waits for that to land. */
+window.addEventListener('load', () => setTimeout(maybeShowAppBanner, 300));
+
 /* ---------- the page is not on screen ----------
  *
  * What was tried, and what it settled, so nobody spends another evening on it:

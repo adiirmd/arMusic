@@ -119,6 +119,16 @@ try {
         </button>
       </div>
     </div>
+    <!-- Hanya muncul di browser Android, lihat maybeShowAppBanner() -->
+    <div id="app-banner" class="hidden">
+      <div class="ab-ic"><svg class="ic"><use href="#i-note"/></svg></div>
+      <div class="ab-text">
+        <div class="ab-title">Dengar sambil buka aplikasi lain</div>
+        <div class="ab-sub">Browser di HP menghentikan musik begitu tabnya ditinggal. Aplikasi Android-nya tidak.</div>
+      </div>
+      <a id="ab-get" class="ab-get" href="https://github.com/adiirmd/arMusic/releases/latest" target="_blank" rel="noopener">Unduh</a>
+      <button type="button" id="ab-close" class="ab-close" title="Tutup" aria-label="Tutup"><svg class="ic"><use href="#i-x"/></svg></button>
+    </div>
     <div id="view"></div>
   </main>
 

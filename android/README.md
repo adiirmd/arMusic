@@ -31,7 +31,18 @@ Hasilnya ada di `app/build/outputs/`.
 ## Menyiapkan keystore
 
 Kunci penandatanganan **tidak pernah disimpan di repo**. Buat sekali, lalu
-simpan sebagai secret di GitHub.
+simpan sebagai secret di GitHub. Ada skrip yang mengurus semuanya:
+
+```bash
+bash android/setup-signing.sh
+```
+
+Skrip itu membuat keystore dengan kata sandi acak 32 karakter, lalu menyetel
+keempat secret lewat GitHub CLI kalau tersedia, atau mencetak nilainya untuk
+ditempel sendiri. Berhenti kalau sudah ada keystore di tempat yang sama,
+supaya kunci lama tidak tertimpa.
+
+Kalau lebih suka manual, isinya sama dengan ini:
 
 ```bash
 keytool -genkeypair -v \
