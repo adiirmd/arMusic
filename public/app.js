@@ -3264,13 +3264,21 @@ function toggleFloatWidget() {
  *     changed nothing. Requesting the desktop site changed nothing either,
  *     which rules out the player simply recognising a phone.
  *
- * What is left standing is the browser's own rule: a hidden page does not get
- * to keep playing media that carries a video track, and the sound here comes
- * from a YouTube frame that does carry one. That rule lives below the page, so
- * the page cannot argue with it. The Android app gets around it honestly, by
- * never telling its WebView that it is hidden — see BackgroundWebView there.
+ *   - The Android app, same phone and same YouTube frame, keeps playing. The
+ *     only thing done differently there is that its WebView never reports
+ *     itself hidden — see BackgroundWebView.
  *
- * So the only thing left to do here is to ask once, and then say so plainly.
+ * That last one is what points at the cause. Android is plainly willing to
+ * keep this playing in the background, so what stops it in a browser tab is
+ * the page being told it is hidden, and whoever acts on that: the embedded
+ * player, the browser's media policy, or both. Which of them hardly matters,
+ * because the page cannot suppress that signal for itself. document.hidden is
+ * not ours to set, and the frame that plays the sound belongs to another
+ * origin. Only something that owns the browser engine can withhold it, which
+ * is exactly what the app does and what a tab can never do.
+ *
+ * So the only thing left to do here is to pick playback back up on return,
+ * and to say once why it stopped.
  */
 const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
