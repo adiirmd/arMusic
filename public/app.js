@@ -83,11 +83,11 @@ function updatePanelButtons() {
     o.setAttribute('aria-pressed', String(open));
   }
   // leave .title to updateQueueTab, which shows the queue count there
-  [$('#mini-queue'), $('#mini-queue-m')].forEach((b) => {
-    if (!b) return;
-    b.classList.toggle('on', onQueue);
-    b.setAttribute('aria-pressed', String(onQueue));
-  });
+  const q = $('#mini-queue-m');
+  if (q) {
+    q.classList.toggle('on', onQueue);
+    q.setAttribute('aria-pressed', String(onQueue));
+  }
 }
 function focusedSong() { return Player.pending || Player.current; }
 function isPreviewing() {
@@ -948,11 +948,11 @@ function updateQueueTab() {
     const ic = t.querySelector('svg');
     t.innerHTML = (ic ? ic.outerHTML : icon('i-queue')) + (n ? `Queue · ${n}` : 'Queue');
   });
-  [$('#mini-queue'), $('#mini-queue-m')].forEach((b) => {
-    if (!b) return;
-    b.classList.toggle('has-q', n > 0);
-    b.title = n ? `Queue · ${n}` : 'Queue';
-  });
+  const q = $('#mini-queue-m');
+  if (q) {
+    q.classList.toggle('has-q', n > 0);
+    q.title = n ? `Queue · ${n}` : 'Queue';
+  }
 }
 function renderQueue() {
   updateQueueTab();
@@ -2609,7 +2609,6 @@ const toggleQueue = (e) => {
   if (isNPOpen() && activeNPTab() === 'queue') closeNowPlaying();
   else { openNowPlaying(); switchNPTab('queue'); }
 };
-$('#mini-queue').addEventListener('click', toggleQueue);
 $('#mini-queue-m').addEventListener('click', toggleQueue);
 /* shuffle / repeat on the bar (synced with Now Playing buttons) */
 $('#mini-shuffle').addEventListener('click', (e) => {
