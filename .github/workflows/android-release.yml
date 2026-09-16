@@ -29,26 +29,50 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Pulihkan keystore dari secret
+      - name: Siapkan keystore
         id: keystore
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "Secret ANDROID_KEYSTORE_BASE64 belum diisi." >&2
-            echo "Tanpa itu APK tidak bisa ditandatangani dan tidak akan bisa dipasang." >&2
-            echo "Lihat android/README.md untuk cara membuat dan mengunggahnya." >&2
-            exit 1
+          KS="$RUNNER_TEMP/release.jks"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$KS"
+            {
+              echo "path=$KS"
+              echo "pw=$KEYSTORE_PW"
+              echo "alias=$KEY_ALIAS"
+              echo "keypw=$KEY_PW"
+              echo "stable=true"
+            } >> "$GITHUB_OUTPUT"
+            echo "Memakai keystore tetap dari secret repo."
+          else
+            # Tidak ada secret: buat kunci sekali pakai supaya tetap ada APK
+            # yang bisa dipasang. Rilisnya ditandai prerelease, karena kunci
+            # sekali pakai berarti pembaruan berikutnya tidak bisa menimpa.
+            PW="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' )"
+            keytool -genkeypair -v -keystore "$KS" -alias armusic \
+              -keyalg RSA -keysize 4096 -validity 10000 \
+              -storepass "$PW" -keypass "$PW" \
+              -dname "CN=AR Music, O=AR Music, C=ID" >/dev/null
+            {
+              echo "path=$KS"
+              echo "pw=$PW"
+              echo "alias=armusic"
+              echo "keypw=$PW"
+              echo "stable=false"
+            } >> "$GITHUB_OUTPUT"
+            echo "::warning::Secret penandatanganan belum disetel, dipakai kunci sekali pakai. Rilis ditandai prerelease."
           fi
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "path=$RUNNER_TEMP/release.jks" >> "$GITHUB_OUTPUT"
 
       - name: Build release APK + AAB
         env:
           ANDROID_KEYSTORE_FILE: ${{ steps.keystore.outputs.path }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ steps.keystore.outputs.pw }}
+          ANDROID_KEY_ALIAS: ${{ steps.keystore.outputs.alias }}
+          ANDROID_KEY_PASSWORD: ${{ steps.keystore.outputs.keypw }}
         run: ./gradlew --no-daemon assembleRelease bundleRelease
 
       - name: Pastikan APK benar-benar tertandatangani
@@ -91,15 +115,16 @@ jobs:
             android/out/*.aab
             android/out/SHA256SUMS.txt
           generate_release_notes: true
+          prerelease: ${{ steps.keystore.outputs.stable != 'true' }}
           body: |
             Aplikasi Android AR Music.
 
             Pasang berkas `.apk`. Berkas `.aab` hanya diperlukan kalau nanti
-            diunggah ke Google Play.
+            diunggah ke Google Play. Cocokkan `SHA256SUMS.txt` sebelum memasang
+            kalau berkas ini diteruskan ke orang lain.
 
-            Cocokkan `SHA256SUMS.txt` sebelum memasang kalau berkas ini
-            diteruskan ke orang lain.
+            Saat memasang di luar Play Store, Android menampilkan konfirmasi
+            sumber tidak dikenal. Itu perilaku normal untuk semua APK yang
+            dipasang manual, bukan tanda aplikasinya bermasalah.
 
-            Saat memasang di luar Play Store, Android akan menampilkan
-            konfirmasi sumber tidak dikenal. Itu perilaku normal untuk semua
-            APK yang dipasang manual, bukan tanda aplikasinya bermasalah.
+            ${{ steps.keystore.outputs.stable == 'true' && '' || '**Ditandai prerelease.** Build ini ditandatangani dengan kunci sekali pakai karena secret penandatanganan belum disetel di repo. APK-nya berjalan normal, tapi versi berikutnya tidak akan bisa dipasang menimpa yang ini — harus dicopot dulu. Untuk kunci tetap, ikuti android/README.md lalu buat tag baru.' }}
