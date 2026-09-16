@@ -11,8 +11,11 @@ android {
         applicationId = "id.my.adiirmd.armusic"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // CI menetapkan keduanya dari versi rilis dan nomor run, supaya setiap
+        // rilis punya versionCode yang naik. Android menolak memasang pembaruan
+        // dengan versionCode yang tidak lebih besar.
+        versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "1.0.0"
         resourceConfigurations += listOf("in", "en")
     }
 

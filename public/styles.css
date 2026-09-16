@@ -1500,7 +1500,10 @@ input, select, textarea { font-size: 16px; }
 @media (pointer: coarse) {
   /* hover-reveal affordances can never be hovered on a touch screen */
   .track .tbtn { opacity: 1; }
-  .card .art .play-ov, .quick-card .play-ov { opacity: 1; transform: none; }
+  /* The overlay on a card is decorative — tapping the card already does the
+     same thing — and pinned open it covers the artwork it sits on. */
+  .card .art .play-ov { display: none; }
+  .quick-card .play-ov { opacity: 1; transform: none; }
   /* transform-on-hover just flickers under a finger */
   .card:hover, .chip:hover, .tb-search:hover, .mood-card:hover,
   .pill-btn:hover, .play-circle:hover, .play-big:hover, .icon-btn:hover { transform: none; }
@@ -1662,3 +1665,32 @@ body.on-search #tb-search { display: none; }
 @media (max-width: 420px) {
   .lib-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
 }
+
+/* ---------- carousels on touch ---------- */
+/* A permanent scrollbar under every shelf reads as a stray grey bar. */
+.carousel { scrollbar-width: none; -ms-overflow-style: none; }
+.carousel::-webkit-scrollbar { display: none; }
+.np-tabs { scrollbar-width: none; }
+.np-tabs::-webkit-scrollbar { display: none; }
+
+/* ---------- inside the Android shell ---------- */
+/* The app already pads the WebView past the status bar, cutout and gesture
+   bar. Adding env(safe-area-inset-*) on top of that would inset everything a
+   second time, so the page contributes none of its own here. */
+html.in-app #app {
+  padding-top: 8px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+@media (max-width: 860px) {
+  html.in-app #app { padding: 0; }
+  html.in-app #nav-mobile { padding-bottom: 0; }
+  html.in-app #miniplayer { bottom: calc(var(--navm-h) + 8px); }
+  html.in-app body.has-player #main { padding-bottom: calc(var(--navm-h) + 92px); }
+  html.in-app body.float-mode.has-player #main { padding-bottom: calc(var(--navm-h) + 16px); }
+  html.in-app #toast { bottom: calc(var(--navm-h) + 92px); }
+}
+/* no text selection or callout on a shell that is meant to feel native */
+html.in-app { -webkit-touch-callout: none; }
+html.in-app body { -webkit-user-select: none; user-select: none; }
+html.in-app input { -webkit-user-select: text; user-select: text; }

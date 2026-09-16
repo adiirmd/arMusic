@@ -83,6 +83,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ steps.keystore.outputs.pw }}
           ANDROID_KEY_ALIAS: ${{ steps.keystore.outputs.alias }}
           ANDROID_KEY_PASSWORD: ${{ steps.keystore.outputs.keypw }}
+          VERSION_NAME: ${{ inputs.version != '' && inputs.version || github.ref_name }}
+          VERSION_CODE: ${{ github.run_number }}
         run: ./gradlew --no-daemon assembleRelease bundleRelease
 
       - name: Pastikan APK benar-benar tertandatangani
