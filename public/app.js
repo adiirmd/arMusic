@@ -757,6 +757,25 @@ function renderLyrics() {
     syncFloatLyric('');
   }
 }
+/* Centre the active line by scrolling ONLY the lyrics box.
+   scrollIntoView() walks up and scrolls every scrollable ancestor, and
+   #nowplaying is one of them: overflow:hidden still scrolls from script.
+   That pushed the panel header out of view and it never came back. */
+function centerLyric(container, line) {
+  if (!container || !line) return;
+  const cRect = container.getBoundingClientRect();
+  const lRect = line.getBoundingClientRect();
+  const top = container.scrollTop + (lRect.top - cRect.top) - (container.clientHeight - lRect.height) / 2;
+  container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  keepPanelAnchored();
+}
+/* Safety net: the panel itself must never sit scrolled. */
+function keepPanelAnchored() {
+  const np = $('#nowplaying');
+  if (np && np.scrollTop) np.scrollTop = 0;
+  const inner = $('#nowplaying .np-inner');
+  if (inner && inner.scrollTop) inner.scrollTop = 0;
+}
 let lastLyricIdx = -1;
 function updateLyricHighlight(cur) {
   const L = Player.lyrics;
@@ -771,7 +790,7 @@ function updateLyricHighlight(cur) {
     el.classList.toggle('past', i < idx);
   });
   const active = c.querySelector('.lyric-line.active');
-  if (active && $('#np-lyrics').classList.contains('active')) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (active && $('#np-lyrics').classList.contains('active')) centerLyric(c, active);
   const line = idx >= 0 ? L.lines[idx].text : '';
   $('#np-lyric-preview').textContent = line;
   syncFloatLyric(line);
@@ -2637,8 +2656,10 @@ function switchNPTab(name) {
   if (name === 'lyrics') { lastLyricIdx = -2; }
   if (name === 'queue') renderQueue();
   updatePanelButtons();
+  keepPanelAnchored();
 }
 $$('.np-tab').forEach((t) => t.addEventListener('click', () => switchNPTab(t.dataset.nptab)));
+$('#nowplaying').addEventListener('scroll', keepPanelAnchored, { passive: true });
 
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
