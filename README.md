@@ -1,6 +1,6 @@
 # AR Music
 
-Pemutar musik web gratis. Cari, telusuri, dan putar lagu dari YouTube Music lengkap dengan lirik tersinkron, antrean, dan library lokal — tanpa akun, tanpa iklan, dan tanpa build step.
+Pemutar musik web gratis. Cari, telusuri, dan putar lagu dari YouTube Music lengkap dengan lirik tersinkron, antrean, dan library lokal tanpa akun, tanpa iklan, dan tanpa build step.
 
 **Live:** [music.adiirmd.my.id](https://music.adiirmd.my.id)
 
@@ -131,9 +131,3 @@ vercel.json       konfigurasi build dan routing
 - Pemutaran butuh akses ke `youtube.com`. Di jaringan yang memblokirnya, aplikasi tetap terbuka dan metadata tetap muncul, tapi lagu tidak akan berbunyi.
 - Aplikasi ini bergantung pada API internal YouTube Music yang tidak berdokumentasi resmi dan bisa berubah sewaktu-waktu tanpa pemberitahuan.
 - Dibuat untuk keperluan pribadi dan pembelajaran.
-
----
-
-## Lisensi
-
-ISC
