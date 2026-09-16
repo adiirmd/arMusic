@@ -725,13 +725,47 @@ function parseLRC(lrc) {
   }
   return lines.sort((a, b) => a.t - b.t);
 }
+/* LRCLIB times a specific release. When YouTube Music serves a different
+   master, remix or upload, every line lands early or late by a fixed amount.
+   A per-song shift lets that be nudged; effective cue = line.t + shift. */
+function lyricShift() {
+  const id = Player.current && Player.current.videoId;
+  if (!id) return 0;
+  return Number(store.get('lyrshift', {})[id]) || 0;
+}
+function bumpLyricShift(delta) {
+  const id = Player.current && Player.current.videoId;
+  if (!id) return;
+  const m = store.get('lyrshift', {});
+  const next = Math.max(-10, Math.min(10, (Number(m[id]) || 0) + delta));
+  if (!next) delete m[id]; else m[id] = Number(next.toFixed(1));
+  const keys = Object.keys(m);
+  if (keys.length > 100) delete m[keys[0]]; // keep the map bounded
+  store.set('lyrshift', m);
+  lastLyricIdx = -2; // force the highlighter to repaint
+  renderLyricSource();
+  let cur = 0;
+  try { cur = (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0; } catch {}
+  updateLyricHighlight(cur);
+  toast(next ? `Lyrics shifted ${next > 0 ? '+' : ''}${next.toFixed(1)}s` : 'Lyrics sync reset');
+}
+function renderLyricSource() {
+  const src = $('#lyrics-source');
+  if (!src) return;
+  const L = Player.lyrics;
+  const sh = lyricShift();
+  const base = L && L.source ? `Lyrics provided by ${L.source}` : '';
+  src.textContent = sh ? `${base}${base ? ' · ' : ''}${sh > 0 ? '+' : ''}${sh.toFixed(1)}s` : base;
+}
 function renderLyrics() {
   const c = $('#lyrics-container');
-  const src = $('#lyrics-source');
   const L = Player.lyrics;
   if (L.lines.length) {
     c.innerHTML = L.lines.map((l, i) => `<div class="lyric-line" data-i="${i}" data-t="${l.t}">${esc(l.text) || '♪'}</div>`).join('');
-    $$('.lyric-line', c).forEach((el) => el.addEventListener('click', () => { Player.yt.seekTo(parseFloat(el.dataset.t)); Player.yt.playVideo(); }));
+    $$('.lyric-line', c).forEach((el) => el.addEventListener('click', () => {
+      Player.yt.seekTo(Math.max(0, parseFloat(el.dataset.t) + lyricShift()));
+      Player.yt.playVideo();
+    }));
   } else if (L.plain) {
     c.innerHTML = `<div class="lyric-plain">${esc(L.plain)}</div>`;
   } else {
@@ -743,7 +777,7 @@ function renderLyrics() {
       loadLyrics(Player.current);
     });
   }
-  src.textContent = L.source ? `Lyrics provided by ${L.source}` : '';
+  renderLyricSource();
   lastLyricIdx = -1;
   if (L.lines.length) {
     $('#np-lyric-preview').textContent = '';
@@ -781,7 +815,8 @@ function updateLyricHighlight(cur) {
   const L = Player.lyrics;
   if (!L.lines.length) return;
   let idx = -1;
-  for (let i = 0; i < L.lines.length; i++) { if (cur >= L.lines[i].t - 0.2) idx = i; else break; }
+  const sh = lyricShift();
+  for (let i = 0; i < L.lines.length; i++) { if (cur >= L.lines[i].t + sh - 0.2) idx = i; else break; }
   if (idx === lastLyricIdx) return;
   lastLyricIdx = idx;
   const c = $('#lyrics-container');
@@ -859,7 +894,10 @@ function renderSideQueue() {
       <span class="sq-meta"><span class="sq-t">${esc(q.title)}</span><br><span class="sq-s">${esc(q.artist || q.subtitle || '')}</span></span>
     </button>`).join('');
   } else {
-    html += `<div class="sq-empty">Your queue is empty. Tap ${icon('i-queue')} on a song.</div>`;
+    html += `<div class="sq-empty">
+      <span class="sq-empty-t">Your queue is empty</span>
+      <span class="sq-empty-s">Tap ${icon('i-queue')} on any song to line it up next.</span>
+    </div>`;
   }
   el.innerHTML = html;
   $$('.sq-row', el).forEach((b) => b.addEventListener('click', () => {
@@ -1620,28 +1658,67 @@ function bindSearchChrome(view, q, filter) {
   }
   let sugT;
   if (input) {
+    // arrow keys walk the suggestion list; nothing is chosen until Enter
+    let sugIdx = -1;
+    let typed = input.value;
+    const sugItems = () => $$('#suggest button');
+    const clearSug = () => { $('#suggest').innerHTML = ''; sugIdx = -1; };
+    const paintSug = () => {
+      sugItems().forEach((b, i) => b.classList.toggle('sel', i === sugIdx));
+      const sel = sugItems()[sugIdx];
+      if (sel) sel.scrollIntoView({ block: 'nearest' });
+    };
+    const moveSug = (step) => {
+      const items = sugItems();
+      if (!items.length) return;
+      if (sugIdx === -1) typed = input.value;
+      sugIdx += step;
+      if (sugIdx < -1) sugIdx = items.length - 1;
+      if (sugIdx >= items.length) sugIdx = -1;
+      // -1 means "back to what I actually typed"
+      input.value = sugIdx === -1 ? typed : items[sugIdx].dataset.q;
+      syncClear();
+      paintSug();
+    };
+    const runSearch = (term) => {
+      if (!term) return;
+      pushRecentSearch(term);
+      go(`#/search/${encodeURIComponent(term)}${filter && filter !== 'all' ? '?filter=' + filter : ''}`);
+    };
     input.addEventListener('input', () => {
       syncClear();
       clearTimeout(sugT);
+      sugIdx = -1;
+      typed = input.value;
       const v = input.value.trim();
-      if (!v) { $('#suggest').innerHTML = ''; return; }
+      if (!v) { clearSug(); return; }
       sugT = setTimeout(async () => {
         try {
           const d = await api(`/api/suggest?q=${encodeURIComponent(v)}`);
-          $('#suggest').innerHTML = (d.suggestions || []).slice(0, 6).map((s) => `<button type="button">${icon('i-search')}<span>${esc(s)}</span></button>`).join('');
-          $$('#suggest button').forEach((b) => b.addEventListener('click', () => {
-            const term = b.querySelector('span') ? b.querySelector('span').textContent : b.textContent;
-            pushRecentSearch(term);
-            go(`#/search/${encodeURIComponent(term)}`);
-          }));
+          sugIdx = -1;
+          $('#suggest').innerHTML = (d.suggestions || []).slice(0, 6)
+            .map((s) => `<button type="button" data-q="${esc(s)}">${icon('i-search')}<span>${esc(s)}</span></button>`).join('');
+          sugItems().forEach((b, i) => {
+            b.addEventListener('click', () => runSearch(b.dataset.q));
+            b.addEventListener('mousemove', () => { sugIdx = i; paintSug(); });
+          });
         } catch {}
       }, 220);
     });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { $('#suggest').innerHTML = ''; input.blur(); return; }
-      if (e.key === 'Enter' && input.value.trim()) {
-        pushRecentSearch(input.value.trim());
-        go(`#/search/${encodeURIComponent(input.value.trim())}${filter && filter !== 'all' ? '?filter=' + filter : ''}`);
+      if (e.key === 'ArrowDown') { e.preventDefault(); moveSug(1); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); moveSug(-1); return; }
+      if (e.key === 'Escape') {
+        if (sugIdx !== -1) { input.value = typed; syncClear(); }
+        clearSug();
+        input.blur();
+        return;
+      }
+      if (e.key === 'Enter') {
+        const items = sugItems();
+        const term = (sugIdx >= 0 && items[sugIdx]) ? items[sugIdx].dataset.q : input.value.trim();
+        clearSug();
+        runSearch(term);
       }
     });
   }
@@ -2659,6 +2736,8 @@ function switchNPTab(name) {
   keepPanelAnchored();
 }
 $$('.np-tab').forEach((t) => t.addEventListener('click', () => switchNPTab(t.dataset.nptab)));
+$('#lyr-earlier') && $('#lyr-earlier').addEventListener('click', () => bumpLyricShift(-0.5));
+$('#lyr-later') && $('#lyr-later').addEventListener('click', () => bumpLyricShift(0.5));
 $('#nowplaying').addEventListener('scroll', keepPanelAnchored, { passive: true });
 
 document.addEventListener('keydown', (e) => {
@@ -2942,8 +3021,9 @@ function currentLyricIndex() {
   let cur = 0;
   try { cur = (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0; } catch {}
   let idx = -1;
+  const sh = lyricShift();
   for (let i = 0; i < L.lines.length; i++) {
-    if (cur >= L.lines[i].t - 0.2) idx = i;
+    if (cur >= L.lines[i].t + sh - 0.2) idx = i;
     else break;
   }
   return idx;

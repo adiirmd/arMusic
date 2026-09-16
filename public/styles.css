@@ -177,7 +177,17 @@ a { color: inherit; }
 .sq-row.now .sq-t { color: var(--accent-bright); }
 .sq-n { width: 16px; font-size: 11px; font-weight: 800; color: var(--accent-bright); flex-shrink: 0; text-align: center; }
 .sq-tag { font-size: 10px; font-weight: 800; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; flex-shrink: 0; }
-.sq-empty { color: var(--muted); font-size: 12.5px; padding: 8px 10px 12px; line-height: 1.5; }
+.sq-empty {
+  display: flex; flex-direction: column; gap: 4px;
+  color: var(--muted); font-size: 12.5px; padding: 10px 10px 14px; line-height: 1.5;
+}
+.sq-empty-t { color: var(--text); font-weight: 700; font-size: 13px; }
+.sq-empty-s { color: var(--muted); }
+/* .ic is display:block, which would drop the icon onto its own line mid-sentence */
+.sq-empty .ic {
+  display: inline-block; width: 14px; height: 14px;
+  vertical-align: -3px; margin: 0 1px;
+}
 .sq-sec { font-size: 10.5px; font-weight: 800; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 8px 4px; }
 .logo {
   display: flex; align-items: center; gap: 6px;
@@ -570,9 +580,22 @@ html[data-theme="light"] .detail-head .detail-info h1 { color: #0d1b2f; }
 .search-bar:focus-within { border-color: var(--accent); background: var(--card-hover); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
 .search-bar input { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 15px; font-weight: 500; }
 .search-bar input::placeholder { color: var(--muted); }
-.suggest { display: flex; flex-direction: column; margin-bottom: 14px; }
-.suggest button { text-align: left; padding: 10px 18px; border-radius: 6px; color: var(--muted); font-size: 14px; font-weight: 500; }
+.suggest { display: flex; flex-direction: column; gap: 2px; margin-bottom: 14px; }
+.suggest button {
+  display: flex; align-items: center; gap: 12px;
+  text-align: left; padding: 10px 16px; border-radius: var(--radius-sm);
+  color: var(--muted); font-size: 14px; font-weight: 500;
+}
+.suggest button .ic { width: 16px; height: 16px; flex-shrink: 0; opacity: 0.8; }
+.suggest button > span {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .suggest button:hover { background: var(--hover-strong); color: var(--text); }
+/* keyboard selection — arrow keys move this, Enter commits it */
+.suggest button.sel {
+  background: var(--hover-strong); color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent-bright);
+}
 
 /* top result — only the phone overrides existed, so on wider screens this
    rendered as an unstyled <button>: centred text and a full-size thumbnail */
@@ -1559,3 +1582,49 @@ body.on-search #tb-search { display: none; }
 
 /* panel toggles in the player bar light up while their panel is showing */
 #mini-open.on, #mini-queue.on, #mini-queue-m.on { color: var(--accent-bright); }
+
+/* ---------- Now Playing panel: scrolling ---------- */
+/* Song fits by construction, so it never shows a bar; the other three scroll. */
+#nowplaying #np-player.active { overflow: hidden; }
+#nowplaying #np-lyrics.active,
+#nowplaying #np-queue.active,
+#nowplaying #np-related.active { overflow-y: auto; }
+
+/* the art takes whatever height is left instead of a fixed size, so the
+   Song tab fits any window without a scrollbar */
+@media (min-width: 1100px) {
+  #nowplaying .np-art-wrap {
+    flex: 1 1 auto;
+    width: auto; height: auto;
+    max-width: 100%; min-height: 80px;
+    aspect-ratio: 1;
+    align-self: center;
+  }
+  #nowplaying #np-player.active { gap: 10px; }
+}
+
+/* thinner bars inside the panel than the rest of the app */
+#nowplaying ::-webkit-scrollbar { width: 4px; height: 4px; }
+#nowplaying ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 22%, transparent); border-radius: 4px;
+}
+#nowplaying ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--text) 38%, transparent); }
+#nowplaying * { scrollbar-width: thin; }
+
+/* ---------- lyrics footer ---------- */
+#lyrics-foot {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 6px 4px 2px; flex-shrink: 0;
+}
+#lyrics-foot #lyrics-source {
+  font-size: 11px; color: rgba(255, 255, 255, 0.45);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#lyr-earlier, #lyr-later {
+  flex-shrink: 0; padding: 4px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.68);
+  background: hsla(0, 0%, 100%, 0.10);
+  transition: background 0.15s, color 0.15s;
+}
+#lyr-earlier:hover, #lyr-later:hover { color: #fff; background: hsla(0, 0%, 100%, 0.2); }
