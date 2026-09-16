@@ -568,6 +568,40 @@ html[data-theme="light"] .detail-head .detail-info h1 { color: #0d1b2f; }
 .suggest button { text-align: left; padding: 10px 18px; border-radius: 6px; color: var(--muted); font-size: 14px; font-weight: 500; }
 .suggest button:hover { background: var(--hover-strong); color: var(--text); }
 
+/* top result — only the phone overrides existed, so on wider screens this
+   rendered as an unstyled <button>: centred text and a full-size thumbnail */
+.sr-top {
+  display: flex; align-items: center; gap: 20px; width: 100%;
+  padding: 18px; margin-bottom: 26px;
+  background: var(--card); border-radius: var(--radius-lg);
+  text-align: left; cursor: pointer;
+  transition: background 0.18s, transform 0.18s;
+}
+.sr-top:hover { background: var(--card-hover); transform: translateY(-2px); }
+.sr-top img, .sr-top .art-ph-sr {
+  width: 148px; height: 148px; border-radius: var(--radius);
+  object-fit: cover; flex-shrink: 0; box-shadow: var(--shadow);
+}
+.sr-top.artist img, .sr-top.artist .art-ph-sr { border-radius: 50%; }
+.sr-meta {
+  min-width: 0; flex: 1;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+}
+.sr-kicker {
+  font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.sr-title {
+  font-size: clamp(20px, 2.2vw, 30px); font-weight: 800;
+  letter-spacing: -0.03em; line-height: 1.15; max-width: 100%;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sr-sub {
+  font-size: 13.5px; color: var(--muted); font-weight: 500; max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sr-top .pill-btn.primary { margin-top: 6px; }
+
 /* mood grid */
 .mood-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px; }
 .mood-card {
@@ -1227,7 +1261,7 @@ body.hq-audio #yt-player {
   .play-circle { width: 34px; height: 34px; }
   #view { padding: 18px 16px 30px; }
   .sr-top { flex-direction: row; gap: 14px; padding: 12px; }
-  .sr-top img, .art-ph-sr { width: 92px; height: 92px; }
+  .sr-top img, .sr-top .art-ph-sr { width: 92px; height: 92px; }
   .sr-title { font-size: 20px; }
   .sr-sub { margin: 6px 0 0; }
   .sr-top .pill-btn.primary { display: none; }
@@ -1497,3 +1531,18 @@ body.on-search #tb-search { display: none; }
   /* one long query per row beats a chip squeezed to three letters */
   .recent-go { max-width: calc(100vw - 96px); }
 }
+
+/* ---------- Now Playing panel: compact track rows ---------- */
+/* The panel is ~340px wide. A full track row carries five action buttons,
+   which squeezed .tmeta down to a character or two in Queue and Related.
+   Same treatment as phones: keep the overflow menu, which already offers
+   move up / move down / remove from queue. */
+#nowplaying .track { gap: 10px; padding: 8px 6px; }
+#nowplaying .track .tbtn { display: none; }
+#nowplaying .track .btn-more { display: inline-flex !important; opacity: 1; }
+#nowplaying .track .tmeta { flex: 1; min-width: 0; }
+#nowplaying .track .tt { font-size: 14px; }
+#nowplaying .track .ts { font-size: 12px; }
+#nowplaying .track .tdur { min-width: 34px; font-size: 12px; }
+#nowplaying .track img { width: 38px; height: 38px; }
+#nowplaying .q-note, #nowplaying .q-hint { font-size: 12.5px; line-height: 1.5; }
