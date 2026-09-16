@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="AR Music">
+  <defs>
+    <linearGradient id="armLogo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5aa0f5"/>
+      <stop offset="1" stop-color="#2f5fc0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#armLogo)"/>
+  <g fill="#ffffff">
+    <rect x="94"  y="198" width="44" height="116" rx="22"/>
+    <rect x="164" y="158" width="44" height="196" rx="22"/>
+    <rect x="234" y="118" width="44" height="276" rx="22"/>
+    <rect x="304" y="158" width="44" height="196" rx="22"/>
+    <rect x="374" y="198" width="44" height="116" rx="22"/>
+  </g>
+</svg>
