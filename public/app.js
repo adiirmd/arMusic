@@ -588,8 +588,24 @@ function seekRelative(delta) {
     Player.yt.seekTo(Math.max(0, dur ? Math.min(dur - 1, cur + delta) : cur + delta), true);
   } catch {}
 }
+/* When wrapped in the Android app, tell the native side whether audio is
+   running so it can keep a media foreground service alive. Harmless in a
+   plain browser, where the bridge simply is not there. */
+let _lastNativeState = null;
+function notifyNativePlayback(playing) {
+  if (_lastNativeState === playing) return;
+  _lastNativeState = playing;
+  try {
+    const br = window.ARMusicNative;
+    if (br && typeof br.setPlaying === 'function') {
+      const s = Player.current || {};
+      br.setPlaying(!!playing, String(s.title || ''), String(s.artist || ''));
+    }
+  } catch {}
+}
 /* Keep the OS notification and lock screen honest about what is playing. */
 function syncMediaSession(playing) {
+  notifyNativePlayback(playing);
   if (!('mediaSession' in navigator)) return;
   try { navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch {}
   try {
