@@ -3253,24 +3253,34 @@ function toggleFloatWidget() {
   else openFloatWidget();
 }
 
-/* ---------- pointing Android browsers at the app ----------
+/* ---------- pointing phone and tablet browsers at the app ----------
  *
- * The web version cannot play in the background on a phone — see the note
- * below for why — so rather than letting the music die quietly, say where the
- * version that can is. Only where it is true and useful:
+ * The web version cannot play in the background on a handheld (see the note
+ * below for why), so rather than letting the music die quietly, say where the
+ * version that can is. Shown only where it is both true and useful:
  *
- *   - Android browsers only. There is no iOS build to send anyone to, and on
- *     a desktop browser background playback already works.
+ *   - A phone or tablet. A desktop browser already keeps playing, so there is
+ *     nothing to offer there, whatever its user agent claims.
+ *   - Android, because the download is an APK. There is no iOS build, and
+ *     offering one that does not exist would be worse than staying quiet.
  *   - Not inside the app itself, which is already the answer.
  *   - Once. Dismissed is dismissed, remembered on the device.
  */
+function isHandheld() {
+  // Touch is what separates a phone or tablet from a desktop here. Screen
+  // width would call a small window a phone, and the user agent alone would
+  // fall for a desktop browser asked to request the desktop site.
+  const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  return !!coarse || navigator.maxTouchPoints > 0;
+}
 function maybeShowAppBanner() {
   const el = $('#app-banner');
   if (!el) return;
-  const onAndroidBrowser =
+  const worthOffering =
+    isHandheld() &&
     /Android/i.test(navigator.userAgent) &&
     !document.documentElement.classList.contains('in-app');
-  if (!onAndroidBrowser || store.get('appbanner_off', false)) return;
+  if (!worthOffering || store.get('appbanner_off', false)) return;
   el.classList.remove('hidden');
 }
 $('#ab-close')?.addEventListener('click', () => {
