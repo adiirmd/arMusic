@@ -305,6 +305,7 @@ window.onYouTubeIframeAPIReady = () => {
         }
         if (e.data === YT.PlayerState.BUFFERING) applyPlaybackQuality();
         if (e.data === YT.PlayerState.PLAYING) Player.wantPlaying = true;
+        resumeIfBackgroundPause(e.data);
         syncMediaSession(e.data === YT.PlayerState.PLAYING);
         document.body.classList.toggle('paused', e.data !== YT.PlayerState.PLAYING);
         renderPlayButtons();
@@ -500,6 +501,10 @@ function startCurrent() {
     // without these the lock screen shows no scrubber and no skip buttons
     on('seekbackward', (d) => seekRelative(-(d && d.seekOffset ? d.seekOffset : 10)));
     on('seekforward', (d) => seekRelative(d && d.seekOffset ? d.seekOffset : 10));
+    // Chrome puts a picture-in-picture button on the media notification when
+    // this exists. It is the only way to reach the widget without the tab
+    // being focused first, and the widget is what keeps audio alive.
+    on('enterpictureinpicture', () => { openFloatWidget(); });
     on('seekto', (d) => {
       if (!Player.yt || !d || d.fastSeek === true) return;
       try { Player.yt.seekTo(d.seekTime, true); } catch {}
@@ -615,6 +620,10 @@ window.ARMusicCloseOverlay = function () {
   if (modal && !modal.classList.contains('hidden')) { modal.classList.add('hidden'); return true; }
   if (isNPOpen()) { closeNowPlaying(); return true; }
   return false;
+};
+/* The shell opens the player before shrinking into a PiP window. */
+window.ARMusicOpenPlayer = function () {
+  try { if (Player.current) { openNowPlaying(); switchNPTab('player'); } } catch {}
 };
 /* Transport buttons on the notification land here. */
 window.ARMusicCommand = function (cmd) {
@@ -3252,23 +3261,59 @@ function toggleFloatWidget() {
   else openFloatWidget();
 }
 
-/* Backgrounding can pause the embedded player even though the listener never
-   asked for it. Resume only when the intent really was "playing", so a pause
-   from the lock screen or the bar is still respected. Give up after a few
-   tries so a browser that refuses outright is not fought in a loop. */
+/* ---------- keeping audio alive when the page is not on screen ----------
+ *
+ * The sound comes from YouTube's embedded player, and that player stops itself
+ * as soon as its page stops being visible — the same rule that stops
+ * youtube.com in a background tab without Premium. So there are two moves
+ * here, in this order:
+ *
+ *   1. Ask it to carry on. Some browsers allow it, and the request is made
+ *      from the player's own pause event, which still arrives while timers are
+ *      throttled, so it happens at once instead of a second later.
+ *   2. When the browser refuses, say so and point at the widget: in a
+ *      picture-in-picture window the player is genuinely still visible, so it
+ *      never stops in the first place.
+ */
+const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
+let bgHintShown = false;
+
+function resumeIfBackgroundPause(state) {
+  if (!document.hidden || !Player.wantPlaying || Player.cued) return;
+  if (state !== YT.PlayerState.PAUSED) return;
+  if (bgResumeTries >= BG_RESUME_MAX) return;
+  bgResumeTries++;
+  try { Player.yt.playVideo(); } catch {}
+}
+
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) return;
-  bgResumeTries = 0;
+  if (document.hidden) {
+    bgResumeTries = 0;
+    return;
+  }
   // timers are throttled in the background, so the UI is stale on return
   syncPlaybackUI();
   renderPlayButtons();
+  // Came back to a track that should be running but is not: the browser won
+  // that argument, so offer the one thing that does work.
+  if (!bgHintShown && Player.wantPlaying && !Player.cued && bgResumeTries >= BG_RESUME_MAX) {
+    let st = -1;
+    try { st = Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch {}
+    if (st === YT.PlayerState.PAUSED) {
+      bgHintShown = true;
+      toast('Browser ini menghentikan musik saat tab ditinggal. Pakai tombol Widget di player agar tetap jalan.');
+    }
+  }
+  bgResumeTries = 0;
 });
+
+// Backstop for a browser that pauses without reporting a state change.
 setInterval(() => {
   if (!Player.yt || !Player.ready) return;
   if (!document.hidden) { bgResumeTries = 0; return; }
   if (!Player.wantPlaying || Player.cued) return;
-  if (bgResumeTries >= 5) return;
+  if (bgResumeTries >= BG_RESUME_MAX) return;
   let st = -1;
   try { st = Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch { return; }
   if (st === YT.PlayerState.PAUSED) {

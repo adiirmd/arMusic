@@ -2,6 +2,13 @@ package id.my.adiirmd.armusic
 
 import android.annotation.SuppressLint
 import android.Manifest
+import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.drawable.Icon
+import android.util.Rational
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
@@ -17,6 +24,8 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.ChecksSdkIntAtLeast
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -29,6 +38,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var web: WebView
     private lateinit var root: FrameLayout
+    private var isPlayingNow = false
 
     /**
      * Bridge the web player uses to say whether audio is running. The web app
@@ -47,6 +57,8 @@ class MainActivity : AppCompatActivity() {
                     // music app behaves: pausing must not make it vanish.
                     PlaybackService.update(this@MainActivity, playing, title, artist, art, duration)
                 }
+                isPlayingNow = playing
+                refreshPipParams()
             }
         }
     }
@@ -139,9 +151,8 @@ class MainActivity : AppCompatActivity() {
                     if (result?.contains("y") == true) return@evaluateJavascript
                     if (web.canGoBack()) web.goBack()
                     // Never finish(): destroying the activity destroys the
-                    // WebView, and the music is playing inside it. Going to the
-                    // background keeps it alive, held up by the media service.
-                    else moveTaskToBack(true)
+                    // WebView, and the music is playing inside it.
+                    else leaveApp()
                 }
             }
         })
@@ -154,6 +165,91 @@ class MainActivity : AppCompatActivity() {
         }
 
         askNotificationPermissionIfNeeded()
+    }
+
+    /*
+     * Background playback, the only way it can work here.
+     *
+     * The audio comes from YouTube's embedded player, and that player pauses
+     * itself the moment its page stops being visible — the same rule that stops
+     * youtube.com playing in a background tab without Premium. No amount of
+     * calling play() from our side wins that argument.
+     *
+     * Picture-in-Picture sidesteps it honestly: the window stays genuinely
+     * visible, just small, so the player never considers itself hidden and
+     * keeps going. Entering it automatically on minimise is what makes the
+     * music survive leaving the app.
+     */
+    @ChecksSdkIntAtLeast(api = Build.VERSION_CODES.O)
+    private fun pipSupported(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun pipAction(iconRes: Int, label: String, action: String): RemoteAction {
+        val pi = PendingIntent.getService(
+            this, action.hashCode(),
+            Intent(this, PlaybackService::class.java).setAction(action),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        return RemoteAction(Icon.createWithResource(this, iconRes), label, label, pi)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun buildPipParams(): PictureInPictureParams {
+        val b = PictureInPictureParams.Builder().setAspectRatio(Rational(1, 1))
+        b.setActions(
+            listOf(
+                pipAction(R.drawable.ic_note_prev, "Sebelumnya", PlaybackService.ACTION_PREV),
+                pipAction(
+                    if (isPlayingNow) R.drawable.ic_note_pause else R.drawable.ic_note_play,
+                    if (isPlayingNow) "Jeda" else "Putar", PlaybackService.ACTION_TOGGLE
+                ),
+                pipAction(R.drawable.ic_note_next, "Berikutnya", PlaybackService.ACTION_NEXT)
+            )
+        )
+        // Android 12+ can slide straight into PiP on the home gesture, which is
+        // smoother than reacting to onUserLeaveHint after the fact.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) b.setAutoEnterEnabled(isPlayingNow)
+        return b.build()
+    }
+
+    private fun refreshPipParams() {
+        if (!pipSupported()) return
+        runCatching { setPictureInPictureParams(buildPipParams()) }
+    }
+
+    /**
+     * Leaving by the back gesture. moveTaskToBack() alone hides the window, and
+     * a hidden window is exactly what makes the embedded player stop, so slip
+     * into Picture-in-Picture instead whenever something is playing.
+     */
+    private fun leaveApp() {
+        if (pipSupported() && isPlayingNow && !isInPictureInPictureMode) {
+            val ok = runCatching { enterPictureInPictureMode(buildPipParams()) }.getOrDefault(false)
+            if (ok) return
+        }
+        moveTaskToBack(true)
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Android 8 to 11 have no auto-enter, so ask for it as the user leaves.
+        if (pipSupported() && isPlayingNow && !isInPictureInPictureMode) {
+            runCatching { enterPictureInPictureMode(buildPipParams()) }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(inPip, newConfig)
+        // A tiny window cannot show the full UI, so the page switches to a
+        // cover-only view while it is shrunk.
+        val js = if (inPip)
+            "document.documentElement.classList.add('pip-mode');" +
+                "window.ARMusicOpenPlayer && ARMusicOpenPlayer();"
+        else
+            "document.documentElement.classList.remove('pip-mode');"
+        web.evaluateJavascript(js, null)
     }
 
     private fun isAllowed(url: Uri): Boolean {
