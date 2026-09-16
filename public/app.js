@@ -941,51 +941,6 @@ function updateLikeButtons() {
   $('#np-like').classList.toggle('liked', !!npLiked);
   renderSidebarLibrary();
 }
-function renderSideQueue() {
-  const el = $('#side-queue');
-  const clr = $('#side-q-clear');
-  if (!el) return;
-  const n = userQueueCount();
-  if (clr) clr.classList.toggle('hidden', n === 0);
-  if (!Player.current) {
-    el.innerHTML = '<div class="sq-empty">Play a song, then tap the queue icon to add tracks here.</div>';
-    return;
-  }
-  const upcoming = [];
-  Player.queue.forEach((q, i) => { if (i > Player.index) upcoming.push({ q, i }); });
-  const user = upcoming.filter((x) => x.q._user);
-  const now = Player.current;
-  let html = `<div class="sq-sec">Now playing</div>
-    <button type="button" class="sq-row now" data-qi="${Player.index}">
-      ${coverHTML(now.thumbnail, 'sq')}
-      <span class="sq-meta"><span class="sq-t">${esc(now.title)}</span><br><span class="sq-s">${esc(now.artist || now.subtitle || '')}</span></span>
-    </button>`;
-  if (user.length) {
-    html += `<div class="sq-sec">Your queue · ${user.length}</div>`;
-    html += user.map(({ q, i }, n) => `<button type="button" class="sq-row" data-qi="${i}">
-      <span class="sq-n">${n + 1}</span>
-      ${coverHTML(q.thumbnail, 'sq')}
-      <span class="sq-meta"><span class="sq-t">${esc(q.title)}</span><br><span class="sq-s">${esc(q.artist || q.subtitle || '')}</span></span>
-    </button>`).join('');
-  } else {
-    html += `<div class="sq-empty">
-      <span class="sq-empty-t">Your queue is empty</span>
-      <span class="sq-empty-s">Tap ${icon('i-queue')} on any song to line it up next.</span>
-    </div>`;
-  }
-  el.innerHTML = html;
-  $$('.sq-row', el).forEach((b) => b.addEventListener('click', () => {
-    const idx = Number(b.dataset.qi);
-    if (!Number.isFinite(idx) || idx < 0) return;
-    if (idx === Player.index) {
-      openNowPlaying();
-      switchNPTab('player');
-      return;
-    }
-    Player.index = idx;
-    startCurrent();
-  }));
-}
 function updateQueueTab() {
   const n = userQueueCount();
   $$('.np-tab').forEach((t) => {
@@ -1001,7 +956,6 @@ function updateQueueTab() {
 }
 function renderQueue() {
   updateQueueTab();
-  renderSideQueue();
   persistQueue();
   const el = $('#queue-list');
   if (!el) return;
@@ -2830,10 +2784,6 @@ $('#nav-back').addEventListener('click', () => history.back());
 $('#nav-fwd').addEventListener('click', () => history.forward());
 $('#lib-new').addEventListener('click', () => go('#/library'));
 $('#lib-title-btn').addEventListener('click', () => go('#/library'));
-const sideQBtn = $('#side-queue-btn');
-if (sideQBtn) sideQBtn.addEventListener('click', () => { openNowPlaying(); switchNPTab('queue'); });
-const sideQClr = $('#side-q-clear');
-if (sideQClr) sideQClr.addEventListener('click', (e) => { e.stopPropagation(); clearUserQueue(); });
 $('#miniplayer').addEventListener('click', (e) => {
   if (e.target.closest('button, input, .pb-bar, .pb-seek')) return;
   Player.pending = null;
@@ -3395,7 +3345,6 @@ if ('serviceWorker' in navigator) {
   setTimeout(hide, 2800);
 })();
 renderNav();
-renderSideQueue();
 updateThemeIcon();
 $('#theme-toggle').addEventListener('click', toggleTheme);
 $('#tb-search').addEventListener('click', () => go('#/search'));
@@ -3424,7 +3373,6 @@ document.addEventListener('error', (e) => {
   ph.className = 'art-ph';
   if (el.classList.contains('pl-pick-art')) ph.classList.add('pl-pick-ph');
   if (el.closest('.track')) ph.classList.add('art-ph-track');
-  else if (el.closest('.sq-row')) ph.classList.add('art-ph-sq');
   else if (el.closest('.quick-card')) ph.classList.add('art-ph-quick');
   else if (el.closest('.sr-top')) ph.classList.add('art-ph-sr');
   else if (el.closest('.lib-row')) ph.classList.add('art-ph-lib');

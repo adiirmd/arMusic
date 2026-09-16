@@ -156,39 +156,6 @@ a { color: inherit; }
 }
 .side-box + .side-box { border-top: 1px solid var(--border); }
 .lib-box { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
-.q-box {
-  flex: 0 1 auto; max-height: 38%; min-height: 132px;
-  display: flex; flex-direction: column; overflow: hidden;
-}
-#side-queue { flex: 1; overflow-y: auto; min-height: 0; }
-.sq-row {
-  display: flex; align-items: center; gap: 10px; padding: 6px 8px;
-  border-radius: 6px; width: 100%; text-align: left; cursor: pointer;
-  transition: background 0.12s;
-}
-.sq-row:hover { background: var(--hover-strong); }
-.sq-row img {
-  width: 36px; height: 36px; border-radius: 4px; object-fit: cover;
-  background: var(--elevated); flex-shrink: 0;
-}
-.sq-meta { min-width: 0; flex: 1; }
-.sq-t { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sq-s { font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sq-row.now .sq-t { color: var(--accent-bright); }
-.sq-n { width: 16px; font-size: 11px; font-weight: 800; color: var(--accent-bright); flex-shrink: 0; text-align: center; }
-.sq-tag { font-size: 10px; font-weight: 800; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; flex-shrink: 0; }
-.sq-empty {
-  display: flex; flex-direction: column; gap: 4px;
-  color: var(--muted); font-size: 12.5px; padding: 10px 10px 14px; line-height: 1.5;
-}
-.sq-empty-t { color: var(--text); font-weight: 700; font-size: 13px; }
-.sq-empty-s { color: var(--muted); }
-/* .ic is display:block, which would drop the icon onto its own line mid-sentence */
-.sq-empty .ic {
-  display: inline-block; width: 14px; height: 14px;
-  vertical-align: -3px; margin: 0 1px;
-}
-.sq-sec { font-size: 10.5px; font-weight: 800; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; padding: 8px 8px 4px; }
 .logo {
   display: flex; align-items: center; gap: 6px;
   font-weight: 800; font-size: 19px; padding: 8px 12px 16px;
@@ -225,8 +192,7 @@ a { color: inherit; }
 }
 .lib-title:hover { color: var(--text); }
 .lib-title .ic { width: 24px; height: 24px; }
-#lib-new, #side-q-clear { color: var(--muted); }
-#side-q-clear.hidden { display: none !important; }
+#lib-new { color: var(--muted); }
 #lib-new:hover { color: var(--text); background: var(--hover); }
 #lib-new .ic { width: 18px; height: 18px; }
 #lib-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
@@ -427,8 +393,6 @@ html[data-theme="light"] .car-btn {
 .art-ph-track .ic { width: 18px; height: 18px; }
 .art-ph-quick { width: 64px; height: 64px; flex-shrink: 0; }
 .art-ph-quick .ic { width: 22px; height: 22px; }
-.art-ph-sq { width: 36px; height: 36px; border-radius: 4px; }
-.art-ph-sq .ic { width: 16px; height: 16px; }
 .art-ph-sr { width: 148px; height: 148px; border-radius: 8px; flex-shrink: 0; }
 .art-ph-lib, .lib-row .art-ph { width: 48px; height: 48px; border-radius: 4px; }
 .lib-row.round .art-ph { border-radius: 50%; }
@@ -1519,7 +1483,7 @@ input, select, textarea { font-size: 16px; }
   .pill-btn:hover, .play-circle:hover, .play-big:hover, .icon-btn:hover { transform: none; }
   .icon-btn { padding: 9px; }
   .pb-bar { height: 5px; }
-  .sq-row, .lib-row, .modal-row { min-height: 48px; }
+  .lib-row, .modal-row { min-height: 48px; }
 }
 
 /* very small phones: keep the two-up grid from collapsing into slivers */
