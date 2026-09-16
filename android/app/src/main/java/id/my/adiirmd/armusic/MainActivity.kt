@@ -37,10 +37,16 @@ class MainActivity : AppCompatActivity() {
      */
     inner class NativeBridge {
         @JavascriptInterface
-        fun setPlaying(playing: Boolean, title: String, artist: String) {
+        fun setPlaying(playing: Boolean, title: String, artist: String, art: String, duration: Int) {
             runOnUiThread {
-                if (playing) PlaybackService.start(this@MainActivity, title, artist)
-                else PlaybackService.stop(this@MainActivity)
+                if (title.isBlank()) {
+                    // nothing loaded, so there is nothing to show controls for
+                    PlaybackService.stop(this@MainActivity)
+                } else {
+                    // The notification stays up while paused too, the way a
+                    // music app behaves: pausing must not make it vanish.
+                    PlaybackService.update(this@MainActivity, playing, title, artist, art, duration)
+                }
             }
         }
     }
@@ -125,9 +131,27 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (web.canGoBack()) web.goBack() else finish()
+                // Ask the page to close whatever is layered on top — Now Playing
+                // or a dialog — before treating back as "leave".
+                web.evaluateJavascript(
+                    "(window.ARMusicCloseOverlay && ARMusicCloseOverlay()) ? 'y' : 'n'"
+                ) { result ->
+                    if (result?.contains("y") == true) return@evaluateJavascript
+                    if (web.canGoBack()) web.goBack()
+                    // Never finish(): destroying the activity destroys the
+                    // WebView, and the music is playing inside it. Going to the
+                    // background keeps it alive, held up by the media service.
+                    else moveTaskToBack(true)
+                }
             }
         })
+
+        // Transport buttons on the notification reach the player through here.
+        PlaybackCommands.handler = { cmd ->
+            runOnUiThread {
+                web.evaluateJavascript("window.ARMusicCommand && ARMusicCommand('$cmd')", null)
+            }
+        }
 
         askNotificationPermissionIfNeeded()
     }
@@ -174,7 +198,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        PlaybackService.stop(this)
+        // Only tear down when the task is really going away. Stopping the
+        // service on every destroy is what made playback and the notification
+        // disappear the moment the app left the screen.
+        if (isFinishing) PlaybackService.stop(this)
+        PlaybackCommands.handler = null
         web.destroy()
         super.onDestroy()
     }

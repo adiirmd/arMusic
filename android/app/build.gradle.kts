@@ -78,4 +78,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
+    // MediaStyle notification + MediaSessionCompat, so the notification shows
+    // real transport controls instead of a line of text.
+    implementation("androidx.media:media:1.7.0")
 }

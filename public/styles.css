@@ -1382,8 +1382,9 @@ body.hq-audio #yt-player {
     padding: 4px 0 6px;
   }
   .np-art-wrap {
-    width: min(84vw, 46vh);
-    max-width: 420px;
+    /* leave a real gutter either side instead of running to the edges */
+    width: min(74vw, 42vh);
+    max-width: 380px;
     flex-shrink: 1;
   }
   #np-title {

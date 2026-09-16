@@ -593,16 +593,37 @@ function seekRelative(delta) {
    plain browser, where the bridge simply is not there. */
 let _lastNativeState = null;
 function notifyNativePlayback(playing) {
-  if (_lastNativeState === playing) return;
-  _lastNativeState = playing;
+  const s = Player.current || {};
+  const key = `${playing}|${s.videoId || ''}`;
+  if (_lastNativeState === key) return;
+  _lastNativeState = key;
   try {
     const br = window.ARMusicNative;
     if (br && typeof br.setPlaying === 'function') {
-      const s = Player.current || {};
-      br.setPlaying(!!playing, String(s.title || ''), String(s.artist || ''));
+      let dur = 0;
+      try { dur = Math.round((Player.yt && Player.yt.getDuration && Player.yt.getDuration()) || 0); } catch {}
+      br.setPlaying(!!playing, String(s.title || ''), String(s.artist || ''),
+        String(s.thumbnail || ''), dur);
     }
   } catch {}
 }
+
+/* ---- hooks the Android shell calls into ---- */
+/* Back should close whatever is layered on top before leaving the app. */
+window.ARMusicCloseOverlay = function () {
+  const modal = $('#modal');
+  if (modal && !modal.classList.contains('hidden')) { modal.classList.add('hidden'); return true; }
+  if (isNPOpen()) { closeNowPlaying(); return true; }
+  return false;
+};
+/* Transport buttons on the notification land here. */
+window.ARMusicCommand = function (cmd) {
+  try {
+    if (cmd === 'toggle') togglePlay();
+    else if (cmd === 'next') nextTrack(false);
+    else if (cmd === 'prev') prevTrack();
+  } catch {}
+};
 /* Keep the OS notification and lock screen honest about what is playing. */
 function syncMediaSession(playing) {
   notifyNativePlayback(playing);
