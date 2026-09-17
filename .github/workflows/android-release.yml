@@ -121,6 +121,36 @@ jobs:
           name: armusic-android
           path: android/out/*
 
+      - name: Susun catatan rilis
+        # Disusun di shell, bukan di ekspresi. Bentuk "kondisi && A || B" tidak
+        # bisa dipakai kalau A berupa teks kosong: teks kosong dianggap salah,
+        # jadi hasilnya selalu jatuh ke B. Itu yang membuat peringatan kunci
+        # sekali pakai tetap tercetak walau kuncinya sudah tetap.
+        env:
+          STABLE: ${{ steps.keystore.outputs.stable }}
+        run: |
+          {
+            echo "Aplikasi Android AR Music."
+            echo
+            echo "Pasang berkas \`.apk\`. Berkas \`.aab\` hanya diperlukan kalau nanti"
+            echo "diunggah ke Google Play. Cocokkan \`SHA256SUMS.txt\` sebelum memasang"
+            echo "kalau berkas ini diteruskan ke orang lain."
+            echo
+            echo "Saat memasang di luar Play Store, Android menampilkan konfirmasi"
+            echo "sumber tidak dikenal. Itu perilaku normal untuk semua APK yang"
+            echo "dipasang manual, bukan tanda aplikasinya bermasalah."
+            if [ "$STABLE" != "true" ]; then
+              echo
+              echo "**Ditandai prerelease.** Build ini ditandatangani dengan kunci sekali"
+              echo "pakai karena secret penandatanganan belum disetel di repo. APK-nya"
+              echo "berjalan normal, tapi versi berikutnya tidak akan bisa dipasang"
+              echo "menimpa yang ini, harus dicopot dulu. Untuk kunci tetap, jalankan"
+              echo "\`bash android/setup-signing.sh\` lalu buat tag baru."
+            fi
+          } > "$RUNNER_TEMP/release-notes.md"
+          echo "--- catatan rilis ---"
+          cat "$RUNNER_TEMP/release-notes.md"
+
       - name: Publikasikan Release
         # Tag bisa datang dari push tag, atau dibuat langsung oleh action ini
         # saat dijalankan manual dengan input versi.
@@ -136,15 +166,4 @@ jobs:
             android/out/SHA256SUMS.txt
           generate_release_notes: true
           prerelease: ${{ steps.keystore.outputs.stable != 'true' }}
-          body: |
-            Aplikasi Android AR Music.
-
-            Pasang berkas `.apk`. Berkas `.aab` hanya diperlukan kalau nanti
-            diunggah ke Google Play. Cocokkan `SHA256SUMS.txt` sebelum memasang
-            kalau berkas ini diteruskan ke orang lain.
-
-            Saat memasang di luar Play Store, Android menampilkan konfirmasi
-            sumber tidak dikenal. Itu perilaku normal untuk semua APK yang
-            dipasang manual, bukan tanda aplikasinya bermasalah.
-
-            ${{ steps.keystore.outputs.stable == 'true' && '' || '**Ditandai prerelease.** Build ini ditandatangani dengan kunci sekali pakai karena secret penandatanganan belum disetel di repo. APK-nya berjalan normal, tapi versi berikutnya tidak akan bisa dipasang menimpa yang ini — harus dicopot dulu. Untuk kunci tetap, ikuti android/README.md lalu buat tag baru.' }}
+          body_path: ${{ runner.temp }}/release-notes.md
