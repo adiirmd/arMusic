@@ -2632,6 +2632,18 @@ $('#mini-play').addEventListener('click', (e) => { e.stopPropagation(); togglePl
 $('#mini-next').addEventListener('click', (e) => { e.stopPropagation(); nextTrack(false); });
 $('#mini-prev').addEventListener('click', (e) => { e.stopPropagation(); prevTrack(); });
 $('#mini-like').addEventListener('click', (e) => { e.stopPropagation(); if (Player.current) Library.toggleFav(Player.current); });
+/* Di layar kecil dan di dalam aplikasi, bilah pemutar tidak menampilkan
+   tombol Now Playing sama sekali, jadi judul lagunya yang menjadi jalan
+   masuk. Yang diperiksa keberadaan tombolnya, bukan lebar layar: kalau
+   tombolnya ada, judulnya sengaja tidak melakukan apa-apa. */
+function npButtonShown() {
+  const btn = $('#mini-open');
+  // Yang disembunyikan di layar kecil adalah induknya, .pb-right, dan itu
+  // tidak mengubah display milik tombolnya sendiri. Jadi yang diperiksa
+  // apakah tombolnya benar-benar memakan tempat di layar.
+  return !!btn && btn.getBoundingClientRect().width > 0;
+}
+
 /* Hanya tombol Now Playing yang membuka panelnya.
    Dulu seluruh bilah pemutar bisa diklik untuk membuka, termasuk ruang
    kosongnya, begitu pula sampul dan judul lagu. Akibatnya panel terbuka
@@ -2644,6 +2656,10 @@ const openNP = (e) => {
   updateLikeButtons();
   openNowPlaying();
 };
+$('#mini-title').addEventListener('click', (e) => {
+  if (npButtonShown()) return;
+  openNP(e);
+});
 
 // the two bar buttons toggle their panel instead of only opening it
 $('#mini-open').addEventListener('click', (e) => {

@@ -704,8 +704,7 @@ body.np-open.has-player #nowplaying { margin-bottom: var(--player-h); }
   background: var(--elevated); cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
 }
-#mini-art:hover { transform: scale(1.04); }
-.mini-meta { min-width: 0; cursor: pointer; }
+.mini-meta { min-width: 0; }
 #mini-title {
   font-size: 13.5px; font-weight: 600;
   overflow: hidden; text-overflow: ellipsis;
@@ -720,7 +719,11 @@ body.np-open.has-player #nowplaying { margin-bottom: var(--player-h); }
     line-height: 1.25;
   }
 }
-#mini-title:hover { text-decoration: underline; }
+@media (max-width: 980px) {
+  /* di sini tombol Now Playing disembunyikan, jadi judulnya jalan masuknya */
+  #mini-title { cursor: pointer; }
+  #mini-title:hover { text-decoration: underline; }
+}
 #mini-artist { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
 #mini-artist.linkish { cursor: pointer; }
 #mini-artist.linkish:hover { color: var(--text); text-decoration: underline; }
