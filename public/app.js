@@ -2632,7 +2632,10 @@ $('#mini-play').addEventListener('click', (e) => { e.stopPropagation(); togglePl
 $('#mini-next').addEventListener('click', (e) => { e.stopPropagation(); nextTrack(false); });
 $('#mini-prev').addEventListener('click', (e) => { e.stopPropagation(); prevTrack(); });
 $('#mini-like').addEventListener('click', (e) => { e.stopPropagation(); if (Player.current) Library.toggleFav(Player.current); });
-/* open Now Playing from art / title / expand button */
+/* Hanya tombol Now Playing yang membuka panelnya.
+   Dulu seluruh bilah pemutar bisa diklik untuk membuka, termasuk ruang
+   kosongnya, begitu pula sampul dan judul lagu. Akibatnya panel terbuka
+   tanpa diminta hanya karena bilahnya tersenggol. */
 const openNP = (e) => {
   if (e) e.stopPropagation();
   Player.pending = null;
@@ -2641,9 +2644,6 @@ const openNP = (e) => {
   updateLikeButtons();
   openNowPlaying();
 };
-// artwork and title only ever open; closing from them would be surprising
-$('#mini-art').addEventListener('click', openNP);
-$('.mini-meta').addEventListener('click', openNP);
 
 // the two bar buttons toggle their panel instead of only opening it
 $('#mini-open').addEventListener('click', (e) => {
@@ -2789,10 +2789,9 @@ if (npShare) npShare.addEventListener('click', () => shareSong(focusedSong()));
 const npMore = $('#np-more');
 if (npMore) npMore.addEventListener('click', openNowPlayingMore);
 $('#np-artist').addEventListener('click', (e) => { e.stopPropagation(); goToArtist(focusedSong()); });
-/* Baris artis di bilah pemutar menuju halaman artis, bukan membuka panel.
-   Tanpa stopPropagation kliknya naik ke .mini-meta, yang membuka Now
-   Playing. Kalau tidak ada artis yang bisa dituju, klik sengaja dibiarkan
-   naik supaya perilaku lama bilahnya tetap jalan. */
+/* Baris artis di bilah pemutar menuju halaman artis. Kliknya tetap
+   dihentikan di sini supaya tidak ada penangan lain di bilah yang ikut
+   terpicu. Kalau tidak ada artis yang bisa dituju, kliknya dibiarkan saja. */
 $('#mini-artist').addEventListener('click', (e) => {
   if (!e.currentTarget.classList.contains('linkish')) return;
   e.stopPropagation();
@@ -2848,14 +2847,6 @@ $('#nav-back').addEventListener('click', () => history.back());
 $('#nav-fwd').addEventListener('click', () => history.forward());
 $('#lib-new').addEventListener('click', () => go('#/library'));
 $('#lib-title-btn').addEventListener('click', () => go('#/library'));
-$('#miniplayer').addEventListener('click', (e) => {
-  if (e.target.closest('button, input, .pb-bar, .pb-seek')) return;
-  Player.pending = null;
-  renderNowPlaying();
-  renderPlayButtons();
-  updateLikeButtons();
-  openNowPlaying();
-});
 (() => {
   const np = $('#nowplaying');
   let startY = 0;
