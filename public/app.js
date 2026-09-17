@@ -95,10 +95,36 @@ function isPreviewing() {
 }
 
 /* ================= local library (localStorage) ================= */
+const KEY = 'armusic_';
+const OLD_KEY = 'smw_';
 const store = {
-  get(k, d) { try { return JSON.parse(localStorage.getItem('smw_' + k)) ?? d; } catch { return d; } },
-  set(k, v) { localStorage.setItem('smw_' + k, JSON.stringify(v)); },
+  get(k, d) { try { return JSON.parse(localStorage.getItem(KEY + k)) ?? d; } catch { return d; } },
+  set(k, v) { localStorage.setItem(KEY + k, JSON.stringify(v)); },
 };
+
+/* Memindahkan simpanan lama ke awalan baru, sekali jalan.
+   Urutannya disengaja: salin dulu, pastikan hasil salinannya sama persis,
+   baru yang lama dihapus. Kalau ada satu saja yang tidak cocok, yang lama
+   ditinggalkan apa adanya. Di sini ada playlist dan favorit orang, jadi
+   lebih baik menyisakan kunci lama daripada kehilangan isinya. */
+(function migrateStore() {
+  try {
+    const lama = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(OLD_KEY)) lama.push(k);
+    }
+    for (const k of lama) {
+      const baru = KEY + k.slice(OLD_KEY.length);
+      // yang sudah ada di awalan baru menang, jangan ditimpa yang lama
+      if (localStorage.getItem(baru) === null) {
+        localStorage.setItem(baru, localStorage.getItem(k));
+      }
+      // baru dihapus setelah salinannya benar-benar ada di tempat baru
+      if (localStorage.getItem(baru) !== null) localStorage.removeItem(k);
+    }
+  } catch {}
+})();
 const Library = {
   get favorites() { return store.get('fav', []); },
   isFav(id) { return this.favorites.some((s) => s.videoId === id); },
@@ -388,7 +414,7 @@ function slimSong(s) {
 function persistQueue() {
   try {
     if (!Player.queue.length) {
-      localStorage.removeItem('smw_qstate');
+      localStorage.removeItem(KEY + 'qstate');
       return;
     }
     const q = Player.queue.map(slimSong).filter(Boolean).slice(0, 80);
@@ -2096,10 +2122,12 @@ function restoreLibrary() {
     reader.onload = () => {
       try {
         const d = JSON.parse(reader.result);
-        // 'rich-music' and 'smw' are legacy app ids from older backups
-        if (!d || (d.app !== 'ar-music' && d.app !== 'rich-music' && d.app !== 'smw')) throw new Error('Not an AR Music backup');
-        const hasLib = Array.isArray(d.favorites) || Array.isArray(d.playlists) || Array.isArray(d.saved) || Array.isArray(d.history);
-        if (!hasLib) throw new Error('Backup file is empty or invalid');
+        // Dikenali dari isinya, bukan dari nama aplikasi yang tertulis di
+        // dalamnya. Berkas cadangan lama tetap bisa dipulihkan, dan tidak ada
+        // nama aplikasi mana pun yang perlu disebut di sini.
+        const hasLib = !!d && (Array.isArray(d.favorites) || Array.isArray(d.playlists)
+          || Array.isArray(d.saved) || Array.isArray(d.history));
+        if (!hasLib) throw new Error('Not an AR Music backup');
         if (Array.isArray(d.favorites)) store.set('fav', d.favorites);
         if (Array.isArray(d.playlists)) store.set('pls', d.playlists);
         if (Array.isArray(d.history)) store.set('hist', d.history);
@@ -3436,7 +3464,9 @@ setInterval(() => {
 /* cleanup: unregister any previously installed service worker */
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
-  if (window.caches) caches.keys().then((ks) => ks.forEach((k) => k.startsWith('smw-') && caches.delete(k))).catch(() => {});
+  // aplikasi ini tidak memakai Cache API sama sekali, jadi apa pun yang
+  // tersisa di sini milik versi lama dan boleh dibuang seluruhnya
+  if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {});
 }
 
 /* boot */

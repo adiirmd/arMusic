@@ -16,7 +16,10 @@
 <link rel="stylesheet" href="styles.css?v=20260917b" />
 <script>
 try {
-  var t = JSON.parse(localStorage.getItem('smw_theme') || '"dark"');
+  // dibaca sebelum app.js sempat memindahkan simpanan lama, jadi awalan lama
+  // masih dilihat di sini supaya temanya tidak berkedip sekali saat diperbarui
+  var raw = localStorage.getItem('armusic_theme') || localStorage.getItem('smw_theme') || '"dark"';
+  var t = JSON.parse(raw);
   var light = t === 'light';
   document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
   var m = document.querySelector('meta[name="theme-color"]');
