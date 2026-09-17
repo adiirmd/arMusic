@@ -130,22 +130,20 @@ jobs:
           STABLE: ${{ steps.keystore.outputs.stable }}
         run: |
           {
-            echo "Aplikasi Android AR Music."
+            echo "APK untuk Android. Download file \`.apk\` lalu pasang."
             echo
-            echo "Pasang berkas \`.apk\`. Berkas \`.aab\` hanya diperlukan kalau nanti"
-            echo "diunggah ke Google Play. Cocokkan \`SHA256SUMS.txt\` sebelum memasang"
-            echo "kalau berkas ini diteruskan ke orang lain."
+            echo "File \`.aab\` cuma dipakai kalau mau upload ke Play Store."
             echo
-            echo "Saat memasang di luar Play Store, Android menampilkan konfirmasi"
-            echo "sumber tidak dikenal. Itu perilaku normal untuk semua APK yang"
-            echo "dipasang manual, bukan tanda aplikasinya bermasalah."
+            echo "Android akan menampilkan peringatan sumber tidak dikenal saat"
+            echo "memasang. Itu normal karena tidak lewat Play Store."
+            echo
+            echo "Cocokkan \`SHA256SUMS.txt\` kalau file ini diteruskan ke orang lain."
             if [ "$STABLE" != "true" ]; then
               echo
-              echo "**Ditandai prerelease.** Build ini ditandatangani dengan kunci sekali"
-              echo "pakai karena secret penandatanganan belum disetel di repo. APK-nya"
-              echo "berjalan normal, tapi versi berikutnya tidak akan bisa dipasang"
-              echo "menimpa yang ini, harus dicopot dulu. Untuk kunci tetap, jalankan"
-              echo "\`bash android/setup-signing.sh\` lalu buat tag baru."
+              echo "**Prerelease.** Ditandatangani dengan kunci sekali pakai karena"
+              echo "secret penandatanganan belum disetel. Versi berikutnya tidak bisa"
+              echo "dipasang menimpa yang ini, harus dicopot dulu. Untuk kunci tetap,"
+              echo "jalankan \`bash android/setup-signing.sh\`."
             fi
           } > "$RUNNER_TEMP/release-notes.md"
           echo "--- catatan rilis ---"
