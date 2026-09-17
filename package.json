@@ -1,15 +1,33 @@
 {
   "name": "ar-music",
   "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "private": true,
+  "description": "Pemutar musik web dari YouTube Music. Lirik tersinkron, antrean, library lokal, dan aplikasi Android.",
+  "keywords": [
+    "music-player",
+    "youtube-music",
+    "lyrics",
+    "web-app",
+    "vanilla-js",
+    "express"
+  ],
+  "homepage": "https://music.adiirmd.my.id",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adiirmd/arMusic.git"
   },
-  "keywords": [],
-  "author": "",
+  "bugs": {
+    "url": "https://github.com/adiirmd/arMusic/issues"
+  },
+  "author": "adiirmd",
   "license": "ISC",
-  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "express": "^5.2.1"
   }
