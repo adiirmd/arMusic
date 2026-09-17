@@ -3226,20 +3226,36 @@ async function openFloatWidget() {
   closeNowPlaying();
   document.body.classList.add('float-mode');
   drawPipFrame();
-  const sysOk = await startSystemPip();
-  const docOk = sysOk ? false : await openPipWidget();
+  /* Urutannya penting.
+   *
+   * Document picture-in-picture didahulukan karena jendelanya berisi widget
+   * kita sendiri, lengkap dengan tombol putar, lompat lagu, dan penggeser
+   * durasi. Sebelumnya yang didahulukan adalah picture-in-picture bawaan
+   * berisi kanvas lirik, dan tombol-tombol di jendela itu milik browser:
+   * untuk stream kanvas, browser tidak menyediakan tombol putar sama sekali,
+   * hanya lompat sepuluh detik yang tidak melakukan apa pun. Itulah jendela
+   * tanpa tombol putar yang terlihat selama ini.
+   *
+   * Didahulukan juga karena permintaannya butuh izin dari klik yang barusan
+   * terjadi, dan izin itu bisa kedaluwarsa setelah menunggu percobaan lain.
+   *
+   * Sisanya tetap ada sebagai cadangan: kanvas untuk browser ponsel yang
+   * belum mendukung document picture-in-picture, lalu bilah kecil di dalam
+   * halaman kalau keduanya tidak tersedia. */
   const el = $('#float-widget');
-  if (sysOk) {
+  const docOk = await openPipWidget();
+  const sysOk = docOk ? false : await startSystemPip();
+  if (docOk) {
     el.classList.add('hidden');
-    toast('Widget di recent apps — buka aplikasi lain, musik tetap jalan');
-  } else if (docOk) {
+    toast('Widget terpisah, tetap di atas jendela lain');
+  } else if (sysOk) {
     el.classList.add('hidden');
-    toast('Widget floating — stays on top');
+    toast('Widget aktif, buka aplikasi lain dan musik tetap jalan');
   } else {
     el.classList.remove('hidden');
     enableDrag(el);
     bindFloatWidget(document);
-    toast('Floating widget — drag to move');
+    toast('Widget melayang, geser untuk memindahkan');
   }
   syncFloatWidget();
 }
