@@ -423,6 +423,10 @@ function restoreQueue() {
     } catch {}
   };
   tryCue();
+  setMediaMetadata(s);
+  // 'paused', bukan dibiarkan 'none': tanpa ini sistem menganggap tidak ada
+  // yang bisa dikendalikan dan jendela picture-in-picture muncul tanpa tombol
+  try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; } catch {}
   renderNowPlaying();
   renderQueue();
   updateLikeButtons();
@@ -487,25 +491,7 @@ function startCurrent() {
   document.body.classList.add('has-player');
   document.title = `${s.title} • AR Music`;
   applyTint(s.videoId || s.title);
-  if ('mediaSession' in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: s.title, artist: s.artist || '',
-      artwork: s.thumbnail ? [{ src: s.thumbnail, sizes: '544x544' }] : [],
-    });
-    const on = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
-    on('previoustrack', prevTrack);
-    on('nexttrack', () => nextTrack(false));
-    on('play', () => { Player.wantPlaying = true; if (Player.yt) Player.yt.playVideo(); });
-    on('pause', () => { Player.wantPlaying = false; if (Player.yt) Player.yt.pauseVideo(); });
-    on('stop', () => { Player.wantPlaying = false; if (Player.yt) Player.yt.pauseVideo(); });
-    // without these the lock screen shows no scrubber and no skip buttons
-    on('seekbackward', (d) => seekRelative(-(d && d.seekOffset ? d.seekOffset : 10)));
-    on('seekforward', (d) => seekRelative(d && d.seekOffset ? d.seekOffset : 10));
-    on('seekto', (d) => {
-      if (!Player.yt || !d || d.fastSeek === true) return;
-      try { Player.yt.seekTo(d.seekTime, true); } catch {}
-    });
-  }
+  setMediaMetadata(s);
   loadLyrics(s);
   loadSponsorBlock(s.videoId);
   // refresh related tab lazily
@@ -625,6 +611,47 @@ window.ARMusicCommand = function (cmd) {
     else if (cmd === 'prev') prevTrack();
   } catch {}
 };
+/* Judul, artis dan sampul untuk notifikasi sistem, layar kunci, dan jendela
+   picture-in-picture. Dipanggil juga saat antrean baru dipulihkan, supaya
+   lagunya sudah dikenali sistem sebelum sempat diputar. */
+function setMediaMetadata(s) {
+  if (!s || !('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: s.title || '', artist: s.artist || s.subtitle || '',
+      artwork: s.thumbnail ? [{ src: s.thumbnail, sizes: '544x544' }] : [],
+    });
+  } catch {}
+}
+
+/* Penangan tombol dipasang sekali saat halaman dimuat, bukan setiap kali lagu
+   diputar. Dulu dipasang di dalam playSong, jadi sebelum ada lagu yang
+   benar-benar diputar, sistem tidak punya tombol apa pun untuk ditampilkan
+   dan jendela picture-in-picture muncul tanpa tombol putar.
+   Putar dan jeda lewat togglePlay, bukan langsung ke pemutar, karena lagu
+   yang baru dipulihkan belum dimuat dan hanya togglePlay yang tahu cara
+   memulainya. */
+function setupMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  const on = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
+  on('previoustrack', prevTrack);
+  on('nexttrack', () => nextTrack(false));
+  on('play', () => { if (!isPlayingNow()) togglePlay(); });
+  on('pause', () => { if (isPlayingNow()) togglePlay(); });
+  on('stop', () => { if (isPlayingNow()) togglePlay(); });
+  // tanpa ini layar kunci tidak menampilkan penggeser dan tombol lompat
+  on('seekbackward', (d) => seekRelative(-(d && d.seekOffset ? d.seekOffset : 10)));
+  on('seekforward', (d) => seekRelative(d && d.seekOffset ? d.seekOffset : 10));
+  on('seekto', (d) => {
+    if (!Player.yt || !d || d.fastSeek === true) return;
+    try { Player.yt.seekTo(d.seekTime, true); } catch {}
+  });
+}
+function isPlayingNow() {
+  if (Player.cued || !Player.yt || !Player.ready) return false;
+  try { return Player.yt.getPlayerState() === YT.PlayerState.PLAYING; } catch { return false; }
+}
+
 /* Keep the OS notification and lock screen honest about what is playing. */
 function syncMediaSession(playing) {
   notifyNativePlayback(playing);
@@ -3012,10 +3039,7 @@ async function openPipWidget() {
     syncFloatLyric(currentLyricText());
     pip.addEventListener('pagehide', () => {
       Player.pipWin = null;
-      if (Player.floatOn) {
-        $('#float-widget').classList.remove('hidden');
-        document.body.classList.add('float-mode');
-      }
+      if (Player.floatOn) closeFloatWidget();
     });
     return true;
   } catch {
@@ -3180,11 +3204,11 @@ async function startSystemPip() {
     } else {
       return false;
     }
+    // Menutup jendelanya berarti selesai. Dulu di sini mode widget malah
+    // dipertahankan dan bilah kecil di halaman dimunculkan, jadi menutup
+    // popup tidak pernah mengembalikan tampilan semula.
     video.onleavepictureinpicture = () => {
-      if (Player.floatOn) {
-        $('#float-widget').classList.remove('hidden');
-        document.body.classList.add('float-mode');
-      }
+      if (Player.floatOn) closeFloatWidget();
     };
     return true;
   } catch {
@@ -3193,7 +3217,11 @@ async function startSystemPip() {
 }
 
 async function openFloatWidget() {
-  if (!Player.current) { toast('Play a song first'); return; }
+  // Widgetnya mengikuti lagu yang sedang berjalan, jadi harus ada yang
+  // berjalan. Player.current saja tidak cukup: antrean yang dipulihkan dari
+  // simpanan sudah punya lagu tapi belum pernah diputar, dan jendelanya
+  // terbuka tanpa apa pun untuk dikendalikan.
+  if (!Player.current || Player.cued) { toast('Putar lagunya dulu'); return; }
   Player.floatOn = true;
   closeNowPlaying();
   document.body.classList.add('float-mode');
@@ -3227,8 +3255,12 @@ function closeFloatWidget() {
     document.exitPictureInPicture().catch(() => {});
   }
   const video = $('#pip-video');
-  if (video && video.webkitSetPresentationMode && video.webkitPresentationMode === 'picture-in-picture') {
-    try { video.webkitSetPresentationMode('inline'); } catch {}
+  if (video) {
+    if (video.webkitSetPresentationMode && video.webkitPresentationMode === 'picture-in-picture') {
+      try { video.webkitSetPresentationMode('inline'); } catch {}
+    }
+    // kanvasnya tidak perlu terus digambar setelah jendelanya hilang
+    try { video.pause(); } catch {}
   }
   syncFloatWidget();
 }
@@ -3379,6 +3411,7 @@ if ('serviceWorker' in navigator) {
   setTimeout(hide, 2800);
 })();
 renderNav();
+setupMediaSession();
 updateThemeIcon();
 $('#theme-toggle').addEventListener('click', toggleTheme);
 $('#tb-search').addEventListener('click', () => go('#/search'));
