@@ -604,9 +604,24 @@ window.ARMusicCloseOverlay = function () {
   return false;
 };
 /* Transport buttons on the notification land here. */
+/* Menjeda apa adanya, tidak lewat togglePlay. Saat lagunya sedang memuat,
+   getPlayerState belum melaporkan PLAYING, dan togglePlay akan membaca itu
+   sebagai "sedang berhenti" lalu justru memutarnya. */
+function commandPause() {
+  if (Player.cued || !Player.yt || !Player.ready) return;
+  Player.wantPlaying = false;
+  try { Player.yt.pauseVideo(); } catch {}
+}
+
+/* Perintah dari notifikasi dan sesi media di aplikasi Android.
+   'play' dan 'pause' menyebut maunya apa, jadi perintah yang datang saat
+   keadaannya sudah sesuai tidak melakukan apa-apa. 'toggle' tetap diterima
+   demi aplikasi versi lama yang masih mengirimnya. */
 window.ARMusicCommand = function (cmd) {
   try {
-    if (cmd === 'toggle') togglePlay();
+    if (cmd === 'play') { if (!isPlayingNow()) togglePlay(); }
+    else if (cmd === 'pause') commandPause();
+    else if (cmd === 'toggle') togglePlay();
     else if (cmd === 'next') nextTrack(false);
     else if (cmd === 'prev') prevTrack();
   } catch {}

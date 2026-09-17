@@ -45,12 +45,23 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         session = MediaSessionCompat(this, "ARMusic").apply {
+            /*
+             * Perintahnya harus menyebut maunya apa, bukan "balik keadaan".
+             *
+             * Dulu onPlay, onPause dan onStop sama-sama mengirim "toggle".
+             * Android memanggil onPause dan onStop bukan hanya saat pengguna
+             * menekan tombol: aplikasi lain merebut fokus audio, headset
+             * dicabut, perangkat Bluetooth putus, atau sistem meminta semua
+             * sesi berhenti. Kalau saat itu musiknya memang sudah dijeda,
+             * "toggle" justru menyalakannya. Itulah musik yang tiba-tiba
+             * berbunyi sendiri padahal tidak ada tombol yang ditekan.
+             */
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() = PlaybackCommands.send("toggle")
-                override fun onPause() = PlaybackCommands.send("toggle")
+                override fun onPlay() = PlaybackCommands.send("play")
+                override fun onPause() = PlaybackCommands.send("pause")
                 override fun onSkipToNext() = PlaybackCommands.send("next")
                 override fun onSkipToPrevious() = PlaybackCommands.send("prev")
-                override fun onStop() = PlaybackCommands.send("toggle")
+                override fun onStop() = PlaybackCommands.send("pause")
             })
             isActive = true
         }
@@ -61,12 +72,13 @@ class PlaybackService : Service() {
         when (intent?.action) {
             ACTION_STOP -> { stopSelf(); return START_NOT_STICKY }
             // Transport buttons arrive with no extras: forward and redraw only.
-            ACTION_TOGGLE, ACTION_NEXT, ACTION_PREV -> {
+            ACTION_PLAY, ACTION_PAUSE, ACTION_NEXT, ACTION_PREV -> {
                 PlaybackCommands.send(
                     when (intent.action) {
                         ACTION_NEXT -> "next"
                         ACTION_PREV -> "prev"
-                        else -> "toggle"
+                        ACTION_PLAY -> "play"
+                        else -> "pause"
                     }
                 )
                 startFg()
@@ -76,7 +88,10 @@ class PlaybackService : Service() {
         title = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() }
             ?: getString(R.string.app_name)
         artist = intent?.getStringExtra(EXTRA_ARTIST).orEmpty()
-        playing = intent?.getBooleanExtra(EXTRA_PLAYING, true) ?: true
+        // Kalau sistem menghidupkan ulang service tanpa data, pertahankan
+        // keadaan terakhir. Dulu bawaannya true, jadi notifikasinya mengaku
+        // sedang memutar padahal musiknya dijeda.
+        playing = intent?.getBooleanExtra(EXTRA_PLAYING, playing) ?: playing
         durationMs = (intent?.getIntExtra(EXTRA_DURATION, 0) ?: 0) * 1000L
 
         val url = intent?.getStringExtra(EXTRA_ART).orEmpty()
@@ -177,8 +192,10 @@ class PlaybackService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(action(R.drawable.ic_note_prev, "Sebelumnya", ACTION_PREV))
             .addAction(
-                if (playing) action(R.drawable.ic_note_pause, "Jeda", ACTION_TOGGLE)
-                else action(R.drawable.ic_note_play, "Putar", ACTION_TOGGLE)
+                // aksinya mengikuti ikon yang digambar, jadi notifikasi yang
+                // sempat basi pun tidak bisa menyalakan musik yang sudah dijeda
+                if (playing) action(R.drawable.ic_note_pause, "Jeda", ACTION_PAUSE)
+                else action(R.drawable.ic_note_play, "Putar", ACTION_PLAY)
             )
             .addAction(action(R.drawable.ic_note_next, "Berikutnya", ACTION_NEXT))
             .setStyle(
@@ -216,7 +233,8 @@ class PlaybackService : Service() {
         private const val CHANNEL_ID = "armusic_playback"
         private const val NOTE_ID = 1001
         private const val ACTION_STOP = "id.my.adiirmd.armusic.STOP"
-        const val ACTION_TOGGLE = "id.my.adiirmd.armusic.TOGGLE"
+        const val ACTION_PLAY = "id.my.adiirmd.armusic.PLAY"
+        const val ACTION_PAUSE = "id.my.adiirmd.armusic.PAUSE"
         const val ACTION_NEXT = "id.my.adiirmd.armusic.NEXT"
         const val ACTION_PREV = "id.my.adiirmd.armusic.PREV"
         private const val EXTRA_TITLE = "title"
