@@ -1292,7 +1292,7 @@ function trackRowHTML(it, playing = false, extraBtn = '') {
     ${tn}${qn}
     ${coverHTML(it.thumbnail, 'track')}
     <div class="tmeta"><div class="tt">${esc(displayTitle(it.title))}</div><div class="ts">${esc(it.artist || it.subtitle || '')}</div></div>
-    ${it.duration ? `<span class="tdur">${esc(it.duration)}</span>` : ''}
+    <span class="tdur">${it.duration ? esc(it.duration) : '<span class="tdur-none">–</span>'}</span>
     <button class="tbtn btn-fav" title="Favorite">${icon(Library.isFav(it.videoId) ? 'i-heart-f' : 'i-heart-o')}</button>
     <button class="tbtn btn-queue" title="Add to queue">${icon('i-queue')}</button>
     <button class="tbtn btn-addpl" title="Add to playlist">${icon('i-plus')}</button>
@@ -1923,7 +1923,10 @@ function viewStats(view) {
 /* ---- Library ---- */
 function viewLibrary(view, tab) {
   const tabs = [['playlists', 'Playlists'], ['favorites', 'Favorites'], ['saved', 'Saved'], ['history', 'History'], ['stats', 'Stats']];
-  if (tab === 'stats') { go('#/stats'); return; }
+  // location.replace, bukan location.hash: pengalihan ini tidak boleh
+  // meninggalkan langkah riwayatnya sendiri, atau tombol back akan kembali
+  // ke sini lalu dialihkan maju lagi, dan terlihat seperti tidak berfungsi
+  if (tab === 'stats') { location.replace('#/stats'); return; }
   let body = '';
   if (tab === 'favorites') {
     const f = Library.favorites;

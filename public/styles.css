@@ -439,7 +439,10 @@ html[data-theme="light"] .art-ph { background: linear-gradient(145deg, #e6eefa, 
 .track .tmeta { flex: 1; min-width: 0; }
 .track .tt { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
 .track .ts { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
-.track .tdur { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+.track .tdur { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; flex-shrink: 0; }
+/* durasi yang tidak diketahui tetap memakai tempatnya, hanya lebih redup,
+   supaya barisnya tidak bergeser dan kolom Time tetap lurus */
+.track .tdur-none { color: var(--subdued); }
 .track .tbtn { color: var(--muted); padding: 6px; border-radius: 50%; opacity: 0; transition: opacity 0.15s, color 0.15s, transform 0.15s; line-height: 0; }
 .track .tbtn .ic { width: 15px; height: 15px; }
 .track:hover .tbtn, .track.playing .tbtn { opacity: 1; }
@@ -464,6 +467,30 @@ body.paused .eq i { animation: none; height: 5px; }
   0%, 100% { height: 4px; }
   50% { height: 14px; }
 }
+
+/* ---------- keadaan kosong ---------- */
+/* Kelas-kelas ini dipakai di seluruh aplikasi tapi tidak pernah punya aturan
+   dasar, hanya penimpa warna untuk panel Now Playing. Akibatnya isinya
+   menumpuk rata kiri tanpa jarak. */
+.empty-block {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 8px;
+  padding: 56px 24px 64px; max-width: 420px; margin: 0 auto;
+}
+.empty-ic {
+  width: 56px; height: 56px; border-radius: 50%; margin-bottom: 6px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--hover-strong); color: var(--muted);
+}
+.empty-ic .ic { width: 24px; height: 24px; }
+.empty-title { font-size: 17px; font-weight: 700; letter-spacing: -0.015em; }
+.empty-s { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+.empty-cta { margin-top: 14px; }
+
+/* panel Now Playing jauh lebih sempit, jadi jaraknya dipadatkan */
+#nowplaying .empty-block { padding: 28px 12px 32px; gap: 6px; }
+#nowplaying .empty-ic { width: 46px; height: 46px; }
+#nowplaying .empty-ic .ic { width: 20px; height: 20px; }
 
 /* header pages */
 .detail-head {
@@ -508,9 +535,15 @@ html[data-theme="light"] .detail-head .detail-info h1 { color: #0d1b2f; }
   color: var(--muted); font-size: 11.5px; font-weight: 700;
   letter-spacing: 0.08em; text-transform: uppercase;
 }
-.th-n { width: 22px; text-align: center; margin-right: 54px; flex-shrink: 0; }
+/* jarak sampai kolom judul: sampul 40px ditambah dua jarak antar elemen */
+.th-n { width: 22px; text-align: center; margin-right: var(--track-lead); flex-shrink: 0; }
 .th-t { flex: 1; }
-.th-d { width: 48px; text-align: right; margin-right: 118px; flex-shrink: 0; }
+/* Judul kolom Time harus berhenti tepat di atas kolom durasinya. Jaraknya
+   selebar deretan tombol aksi di tiap baris: lima tombol 27px berikut lima
+   jarak 14px. Ditulis sebagai variabel supaya lebar itu disebut sekali, dan
+   layar kecil yang hanya menyisakan satu tombol tinggal menimpanya. */
+:root { --track-actions: 205px; --track-lead: 68px; }
+.th-d { width: 48px; text-align: right; margin-right: var(--track-actions); flex-shrink: 0; }
 .t-num {
   width: 22px; text-align: center; font-size: 13px; color: var(--muted);
   font-variant-numeric: tabular-nums; flex-shrink: 0;
@@ -1326,6 +1359,9 @@ body.hq-audio #yt-player {
 
   /* Track rows: ⋮ only — titles get the width */
   .track { gap: 10px; padding: 8px 6px; }
+  /* tersisa satu tombol dan jaraknya lebih rapat, jadi lebarnya ikut berubah */
+  :root { --track-actions: 37px; --track-lead: 60px; }
+  .track-head { padding: 6px 6px 8px; }
   .track .tbtn { display: none; }
   .track .btn-more { display: inline-flex !important; opacity: 1; }
   .track .btn-qrm, .track .btn-qup, .track .btn-qdn { display: none !important; }
@@ -1641,6 +1677,13 @@ body.on-search #tb-search { display: none; }
 }
 @media (max-width: 420px) {
   .lib-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+}
+/* di layar sempit jarak blok kosong dikurangi, kalau tidak isinya terdorong
+   jauh ke bawah dan tombolnya perlu discroll dulu */
+@media (max-width: 560px) {
+  .empty-block { padding: 36px 16px 44px; }
+  .empty-ic { width: 50px; height: 50px; }
+  .empty-cta { margin-top: 10px; width: 100%; justify-content: center; }
 }
 
 /* ---------- carousels on touch ---------- */
