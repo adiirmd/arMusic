@@ -905,6 +905,22 @@ function updateLyricHighlight(cur) {
   syncFloatLyric(line);
 }
 
+/* Baris artis berlaku sebagai tautan hanya kalau ada yang bisa dituju:
+   browseId artisnya, atau setidaknya namanya untuk dicarikan. Perannya
+   dipasang sekalian, supaya yang terlihat bisa diklik juga bisa dicapai
+   dengan keyboard, bukan hanya dengan tetikus. */
+function setArtistLink(el, on) {
+  if (!el) return;
+  el.classList.toggle('linkish', on);
+  if (on) {
+    el.setAttribute('role', 'link');
+    el.tabIndex = 0;
+  } else {
+    el.removeAttribute('role');
+    el.removeAttribute('tabindex');
+  }
+}
+
 /* ================= now playing UI ================= */
 function renderNowPlaying() {
   const mini = Player.current;
@@ -919,14 +935,14 @@ function renderNowPlaying() {
     const artist = mini.artist || mini.subtitle || '';
     ma.textContent = artist;
     ma.title = artist;
-    ma.classList.toggle('linkish', !!(songArtistBrowseId(mini) || artist.trim()));
+    setArtistLink(ma, !!(songArtistBrowseId(mini) || artist.trim()));
   }
   if (!np) return;
   $('#np-art').src = safeCover(np.thumbnail) || COVER_PH;
   $('#np-title').textContent = np.title;
   const artEl = $('#np-artist');
   artEl.textContent = np.artist || np.subtitle || '';
-  artEl.classList.toggle('linkish', !!(songArtistBrowseId(np) || (np.artist || '').trim()));
+  setArtistLink(artEl, !!(songArtistBrowseId(np) || (np.artist || '').trim()));
   $('#np-bg').style.backgroundImage = np.thumbnail ? `url("${np.thumbnail}")` : 'none';
   syncFloatWidget();
 }
@@ -2743,6 +2759,25 @@ if (npShare) npShare.addEventListener('click', () => shareSong(focusedSong()));
 const npMore = $('#np-more');
 if (npMore) npMore.addEventListener('click', openNowPlayingMore);
 $('#np-artist').addEventListener('click', (e) => { e.stopPropagation(); goToArtist(focusedSong()); });
+/* Baris artis di bilah pemutar menuju halaman artis, bukan membuka panel.
+   Tanpa stopPropagation kliknya naik ke .mini-meta, yang membuka Now
+   Playing. Kalau tidak ada artis yang bisa dituju, klik sengaja dibiarkan
+   naik supaya perilaku lama bilahnya tetap jalan. */
+$('#mini-artist').addEventListener('click', (e) => {
+  if (!e.currentTarget.classList.contains('linkish')) return;
+  e.stopPropagation();
+  goToArtist(Player.current);
+});
+/* Enter dan spasi pada baris artis sama dengan mengkliknya. */
+[$('#mini-artist'), $('#np-artist')].forEach((el) => {
+  if (!el) return;
+  el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    el.click();
+  });
+});
 
 let seekDragging = false;
 const range = $('#np-range');

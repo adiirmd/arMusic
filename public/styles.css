@@ -688,6 +688,10 @@ body.np-open.has-player #nowplaying { margin-bottom: var(--player-h); }
 #mini-artist { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
 #mini-artist.linkish { cursor: pointer; }
 #mini-artist.linkish:hover { color: var(--text); text-decoration: underline; }
+/* baris artis kini bisa difokuskan, jadi fokusnya harus terlihat */
+#mini-artist.linkish:focus-visible, #np-artist.linkish:focus-visible {
+  outline: 2px solid var(--accent-bright); outline-offset: 2px; border-radius: 3px;
+}
 #mini-like { font-size: 16px; }
 
 .pb-center {
