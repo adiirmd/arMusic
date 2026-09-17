@@ -219,6 +219,9 @@ a { color: inherit; }
 .lib-empty { color: var(--muted); font-size: 13px; padding: 14px 10px; line-height: 1.6; }
 .lib-empty b { color: var(--text); }
 .sidebar-footer { font-size: 11px; color: var(--subdued); padding: 12px 8px 4px; }
+/* namanya sedikit lebih tebal dan sedikit lebih terang dari tagline-nya,
+   cukup untuk memimpin tanpa berubah jadi judul */
+.sf-name { font-weight: 700; color: var(--muted); }
 
 /* ---------- main ---------- */
 #main {
