@@ -433,6 +433,7 @@ function restoreQueue() {
   Player.queue = st.queue.map((s) => ({ ...normalizeSong(s), _user: !!s._user }));
   Player.index = Math.min(Math.max(0, Number(st.index) || 0), Player.queue.length - 1);
   Player.shuffle = !!st.shuffle;
+  resetShuffleBag();
   Player.repeat = (st.repeat === 1 || st.repeat === 2) ? st.repeat : 0;
   if (typeof st.speed === 'number' && st.speed > 0) Player.speed = st.speed;
   Player.cued = true;
@@ -505,6 +506,7 @@ function startCurrent() {
   };
   tryPlay();
   Library.pushHistory(s);
+  maybeExtendQueue();
   Player.lyrics = { synced: null, plain: null, source: null, lines: [] };
   Player._lyricsRetried = false;
   Player._lyricsDur = 0;
@@ -532,12 +534,135 @@ function startCurrent() {
   }
 }
 
+/* ---------- penilaian kandidat radio ----------
+ *
+ * Urutan dari YouTube sudah membawa informasi kemiripan, jadi yang dilakukan
+ * di sini menggeser, bukan mengurutkan ulang dari nol. Semua pembobotan
+ * berbasis riwayat dikerjakan di perangkat; tidak ada data pendengar yang
+ * dikirim ke server.
+ */
+function artistKeys(s) {
+  const ids = ((s && s.artists) || []).map((a) => a && a.browseId).filter(Boolean);
+  const names = String((s && s.artist) || '')
+    .split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (s && s.artistBrowseId) ids.push(s.artistBrowseId);
+  return { ids: new Set(ids), names: new Set(names) };
+}
+
+/* Berapa kali tiap artis diputar, dari statistik lokal. */
+function artistPlayCounts() {
+  const by = {};
+  try {
+    for (const v of Object.values(Library.stats)) {
+      const a = String((v && v.artist) || '').split(',')[0].trim().toLowerCase();
+      if (a) by[a] = (by[a] || 0) + ((v && v.plays) || 0);
+    }
+  } catch {}
+  return by;
+}
+
+const RADIO_RUN_LIMIT = 3; // lagu berturut turut dari artis yang sama
+
+/* Menyebar daftar yang sudah diurut supaya tidak lebih dari RADIO_RUN_LIMIT
+   lagu berturut turut dari artis yang sama. Tanpa ini, bobot artis sama yang
+   besar membuat radio terasa seperti memutar satu album. */
+function spreadArtists(list) {
+  const out = [];
+  const tunda = [];
+  let last = '';
+  let run = 0;
+  const nama = (c) => [...artistKeys(c).names][0] || '';
+  for (const c of list) {
+    const a = nama(c);
+    if (a && a === last && run >= RADIO_RUN_LIMIT) { tunda.push(c); continue; }
+    out.push(c);
+    if (a && a === last) run++; else { last = a; run = 1; }
+    // begitu artisnya berganti, yang tadi ditunda boleh masuk lagi
+    for (let i = 0; i < tunda.length; i++) {
+      const t = tunda[i];
+      const ta = nama(t);
+      if (ta === last && run >= RADIO_RUN_LIMIT) continue;
+      tunda.splice(i, 1);
+      out.push(t);
+      if (ta && ta === last) run++; else { last = ta; run = 1; }
+      break;
+    }
+  }
+  return out.concat(tunda);
+}
+
+function rankRadio(list, seed, existing) {
+  const s = artistKeys(seed);
+  const fav = artistPlayCounts();
+  let recent = new Set();
+  try { recent = new Set(Library.history.slice(0, 30).map((h) => h.videoId)); } catch {}
+  const seen = new Set((existing || []).map((q) => q && q.videoId).filter(Boolean));
+  const perArtist = {};
+
+  const dinilai = (list || [])
+    .filter((c) => c && c.videoId && !seen.has(c.videoId))
+    .map((c, i) => {
+      const k = artistKeys(c);
+      const first = [...k.names][0] || '';
+      let score = 100 - i; // dasarnya tetap urutan YouTube
+      if ([...k.ids].some((id) => s.ids.has(id))) score += 120;
+      else if ([...k.names].some((n) => s.names.has(n))) score += 90;
+      if (first && fav[first]) score += Math.min(30, fav[first] * 3);
+      if (recent.has(c.videoId)) score -= 150;
+      const n = (perArtist[first] = (perArtist[first] || 0) + 1);
+      if (n > 4) score -= 60;
+      return { c, score, i };
+    })
+    .sort((a, b) => (b.score - a.score) || (a.i - b.i))
+    .map((x) => ({ ...normalizeSong(x.c), artist: x.c.artist, artists: x.c.artists, _user: false }));
+
+  return spreadArtists(dinilai);
+}
+
+/* Menyambung antrean yang hampir habis, tanpa membongkarnya.
+ *
+ * Berbeda dari fetchQueue yang menyusun ulang total dan mereset Player.index,
+ * fungsi ini hanya menambahkan di belakang. Dipakai untuk dua hal sekaligus:
+ * radio yang batchnya habis, dan album atau playlist yang lagunya sudah habis
+ * tetapi pemutaran harus lanjut ke lagu yang senada. */
+async function extendQueue(seed) {
+  if (!seed || !seed.videoId || Player._extending) return;
+  Player._extending = true;
+  const loadId = Player.loadId;
+  try {
+    const d = await api(`/api/next?videoId=${encodeURIComponent(seed.videoId)}`);
+    if (loadId !== Player.loadId) return; // pendengar sudah pindah lagu sendiri
+    const tambahan = rankRadio(d.queue, seed, Player.queue);
+    if (!tambahan.length) return;
+    Player.queue = Player.queue.concat(tambahan);
+    persistQueue();
+    renderQueue();
+  } catch (e) { console.warn('extend queue fail', e); }
+  finally { Player._extending = false; }
+}
+
+/* Dipanggil tiap kali lagu berganti. Menyambung lebih awal, bukan menunggu
+   lagu terakhir selesai, supaya tidak ada jeda saat pergantian. */
+function maybeExtendQueue() {
+  if (Player.cued || Player.repeat === 1) return;
+  const sisa = Player.queue.length - 1 - Player.index;
+  if (sisa > 3) return;
+  const seed = Player.queue[Player.queue.length - 1] || Player.current;
+  extendQueue(seed);
+}
+
 async function fetchQueue(song) {
   const vid = song && song.videoId;
   const loadId = Player.loadId;
   Player._queueFetching = true;
   try {
-    const d = await api(`/api/next?videoId=${encodeURIComponent(song.videoId)}${song.playlistId ? `&playlistId=${encodeURIComponent(song.playlistId)}` : ''}`);
+    // playlistId lagunya sengaja tidak dikirim. Lagu yang berasal dari album,
+    // playlist, atau chart membawa ID playlist asalnya, dan mengirimkannya
+    // membuat server memakai playlist itu alih alih radio. Isinya jadi sisa
+    // playlist asal, yang kalau campuran akan melenceng jauh genrenya.
+    // Tanpa playlistId, server memakai RDAMVM<videoId>, radio YouTube Music
+    // untuk lagu tersebut. Memutar album secara sengaja tidak lewat sini.
+    const d = await api(`/api/next?videoId=${encodeURIComponent(song.videoId)}`);
     if (Player.cued || loadId !== Player.loadId) return;
     if (!vid || !Player.current || Player.current.videoId !== vid) return;
     Player.lyricsBrowseId = d.lyricsBrowseId;
@@ -545,10 +670,7 @@ async function fetchQueue(song) {
     if (d.queue && d.queue.length > 1) {
       const current = Player.current;
       const userUpcoming = Player.queue.filter((q, i) => i > Player.index && q._user);
-      const radio = d.queue
-        .filter((q) => q.videoId && q.videoId !== (current && current.videoId))
-        .filter((q) => !userUpcoming.some((u) => u.videoId === q.videoId))
-        .map((q) => ({ ...normalizeSong(q), artist: q.artist, _user: false }));
+      const radio = rankRadio(d.queue, current, [current, ...userUpcoming]);
       Player.queue = [current, ...userUpcoming, ...radio].filter(Boolean);
       Player.index = 0;
       renderQueue();
@@ -558,6 +680,46 @@ async function fetchQueue(song) {
   finally {
     if (loadId === Player.loadId) Player._queueFetching = false;
   }
+}
+
+/* ---------- shuffle ----------
+ *
+ * Dulu lagu berikutnya diundi seragam dari seluruh antrean, termasuk lagu yang
+ * sudah lewat, tanpa ingatan. Akibatnya satu lagu bisa muncul berkali kali
+ * sementara yang lain tidak pernah kebagian. Sekarang seperti mengocok kartu:
+ * setiap lagu keluar sekali dulu sebelum ada yang terulang.
+ */
+function resetShuffleBag() {
+  Player.shuffleBag = null;
+  Player.shuffleBagFor = -1;
+}
+
+function takeFromShuffleBag() {
+  const n = Player.queue.length;
+  if (!n) return -1;
+  // Antrean berubah di belasan tempat, jadi tumpukannya yang memeriksa diri
+  // sendiri. Lebih aman daripada mengandalkan setiap pemanggil ingat mengocok
+  // ulang, dan lagu yang baru masuk ikut kebagian.
+  if (Player.shuffleBagFor !== n) resetShuffleBag();
+  // Sengaja hanya memeriksa "belum pernah dibuat", bukan "sudah kosong".
+  // Tumpukan yang habis dibiarkan kosong supaya pemutaran bisa berhenti saat
+  // repeat mati; yang mengisinya ulang hanya repeat all, lewat resetShuffleBag.
+  if (!Array.isArray(Player.shuffleBag)) {
+    const idx = [];
+    for (let i = 0; i < n; i++) if (i !== Player.index) idx.push(i);
+    for (let i = idx.length - 1; i > 0; i--) {           // Fisher Yates
+      const j = Math.floor(Math.random() * (i + 1));
+      [idx[i], idx[j]] = [idx[j], idx[i]];
+    }
+    Player.shuffleBag = idx;
+    Player.shuffleBagFor = n;
+  }
+  // buang indeks yang sudah tidak berlaku, misalnya karena antrean menyusut
+  while (Player.shuffleBag.length) {
+    const i = Player.shuffleBag.shift();
+    if (i < Player.queue.length && i !== Player.index) return i;
+  }
+  return -1;
 }
 
 function nextTrack(auto) {
@@ -570,14 +732,16 @@ function nextTrack(auto) {
   if (!Player.queue.length) return;
   let ni;
   if (Player.shuffle) {
+    // antrean yang ditambahkan pendengar tetap didahulukan, berurutan
     const userNext = Player.queue.findIndex((q, i) => i > Player.index && q._user);
     if (userNext >= 0) ni = userNext;
     else {
-      const others = Player.queue.map((_, i) => i).filter((i) => i !== Player.index);
-      if (!others.length) {
-        if (Player.repeat === 1) ni = Player.index;
-        else return;
-      } else ni = others[Math.floor(Math.random() * others.length)];
+      ni = takeFromShuffleBag();
+      if (ni < 0) {
+        // semua lagu sudah kebagian sekali
+        if (Player.repeat === 1) { resetShuffleBag(); ni = takeFromShuffleBag(); }
+        if (ni < 0) return;
+      }
     }
   } else ni = Player.index + 1;
   if (ni >= Player.queue.length) {
@@ -2719,6 +2883,7 @@ $('#mini-queue-m').addEventListener('click', toggleQueue);
 $('#mini-shuffle').addEventListener('click', (e) => {
   e.stopPropagation();
   Player.shuffle = !Player.shuffle;
+  resetShuffleBag();
   $('#mini-shuffle').classList.toggle('on', Player.shuffle);
   $('#np-shuffle').classList.toggle('on', Player.shuffle);
   toast(Player.shuffle ? 'Shuffle on' : 'Shuffle off');
@@ -2816,6 +2981,7 @@ $('#np-addpl').addEventListener('click', () => focusedSong() && openAddToPlaylis
 $('#np-download').addEventListener('click', () => focusedSong() && downloadSong(focusedSong()));
 $('#np-shuffle').addEventListener('click', function () {
   Player.shuffle = !Player.shuffle;
+  resetShuffleBag();
   this.classList.toggle('on', Player.shuffle);
   $('#mini-shuffle').classList.toggle('on', Player.shuffle);
   persistQueue();
