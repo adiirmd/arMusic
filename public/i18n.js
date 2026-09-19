@@ -94,6 +94,7 @@ const DICT = {
     'home.morning': 'Good morning',
     'home.afternoon': 'Good afternoon',
     'home.evening': 'Good evening',
+    'home.mixForYou': 'Mix for you · based on “{title}”',
 
     /* ---------- search ---------- */
     'search.placeholder': 'Songs, artists, albums or playlists',
@@ -105,6 +106,7 @@ const DICT = {
     'search.albums': 'Albums',
     'search.playlists': 'Playlists',
     'search.videos': 'Videos',
+    'search.more': 'More',
 
     /* ---------- library ---------- */
     'lib.playlists': 'Playlists',
@@ -175,6 +177,7 @@ const DICT = {
     'toast.addedPlaylist': 'Added to playlist',
     'toast.addedTo': 'Added to "{name}"',
     'toast.created': 'Created "{name}"',
+    'toast.imported': 'Imported "{name}" ({songs})',
     'toast.addedQueue': 'Added to your queue',
     'toast.alreadyQueue': 'Already in your queue',
     'toast.playingNext': 'Playing next',
@@ -280,6 +283,8 @@ const DICT = {
     'misc.newPlaylistName': 'Name for the new playlist',
     'misc.myPlaylist': 'My playlist',
     'misc.goToArtist': 'Go to artist',
+    'misc.importedPlaylist': 'Imported playlist',
+    'misc.noPlaylistsYet': 'No playlists yet',
     'queue.nowHead': 'Now playing',
     'queue.yourQueueCount': 'Your queue · {n}',
     'queue.hint': 'Nothing queued yet. Tap the queue icon on a song, or Play next on Now Playing.',
@@ -369,6 +374,7 @@ const DICT = {
     'home.morning': 'Selamat pagi',
     'home.afternoon': 'Selamat siang',
     'home.evening': 'Selamat malam',
+    'home.mixForYou': 'Racikan buat kamu · dari “{title}”',
 
     /* ---------- search ---------- */
     'search.placeholder': 'Lagu, penyanyi, album, atau daftar putar',
@@ -380,6 +386,7 @@ const DICT = {
     'search.albums': 'Album',
     'search.playlists': 'Daftar putar',
     'search.videos': 'Video',
+    'search.more': 'Lainnya',
 
     /* ---------- library ---------- */
     'lib.playlists': 'Daftar putar',
@@ -450,6 +457,7 @@ const DICT = {
     'toast.addedPlaylist': 'Masuk ke daftar putar',
     'toast.addedTo': 'Masuk ke "{name}"',
     'toast.created': 'Daftar putar "{name}" dibuat',
+    'toast.imported': '"{name}" diambil ({songs})',
     'toast.addedQueue': 'Masuk ke antrean',
     'toast.alreadyQueue': 'Sudah ada di antrean',
     'toast.playingNext': 'Diputar setelah lagu ini',
@@ -555,6 +563,8 @@ const DICT = {
     'misc.newPlaylistName': 'Nama daftar putar baru',
     'misc.myPlaylist': 'Daftar putar saya',
     'misc.goToArtist': 'Buka halaman penyanyi',
+    'misc.importedPlaylist': 'Daftar putar dari luar',
+    'misc.noPlaylistsYet': 'Belum ada daftar putar',
     'queue.nowHead': 'Sedang diputar',
     'queue.yourQueueCount': 'Antrean kamu · {n}',
     'queue.hint': 'Antreannya masih kosong. Ketuk ikon antrean di sebuah lagu, atau pakai Putar setelah ini di layar pemutar.',

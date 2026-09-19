@@ -16,6 +16,32 @@ const api = async (path) => {
   return r.json();
 };
 
+/* The date above the greeting.
+ *
+ * The country used to be written straight into the call, so the line stayed
+ * Indonesian even with the app set to English. English gets en-GB rather than
+ * en-US so the order stays day, date, month, year, matching the Indonesian
+ * version: switching language then changes the words without shifting the
+ * layout under them.
+ */
+/* The date above the greeting.
+ *
+ * en-GB rather than en-US, so the order stays day, date, month, year in both
+ * languages and the line does not jump about when the language is switched.
+ * British English leaves out the comma after the day, which is put back here
+ * to match the Indonesian version exactly. */
+function formatDateLine(d) {
+  const id = (typeof I18N !== 'undefined' && I18N.currentLang() === 'id');
+  try {
+    const s = d.toLocaleDateString(id ? 'id-ID' : 'en-GB', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    });
+    return id ? s : s.replace(/^(\S+)\s/, '$1, ');
+  } catch {
+    return d.toDateString();
+  }
+}
+
 const fmtTime = (s) => {
   s = Math.max(0, Math.floor(s || 0));
   const m = Math.floor(s / 60), sec = s % 60;
@@ -492,6 +518,7 @@ function slimSong(s) {
     duration: s.duration || '',
     playlistId: s.playlistId || '',
     _user: !!s._user,
+    _radio: !!s._radio,
   };
 }
 function persistQueue() {
@@ -513,7 +540,7 @@ function persistQueue() {
 function restoreQueue() {
   const st = store.get('qstate', null);
   if (!st || !Array.isArray(st.queue) || !st.queue.length) return false;
-  Player.queue = st.queue.map((s) => ({ ...normalizeSong(s), _user: !!s._user }));
+  Player.queue = st.queue.map((s) => ({ ...normalizeSong(s), _user: !!s._user, _radio: !!s._radio }));
   Player.index = Math.min(Math.max(0, Number(st.index) || 0), Player.queue.length - 1);
   Player.shuffle = !!st.shuffle;
   resetShuffleBag();
@@ -717,7 +744,7 @@ async function extendQueue(seed) {
   try {
     const d = await api(`/api/next?videoId=${encodeURIComponent(seed.videoId)}`);
     if (loadId !== Player.loadId) return; // pendengar sudah pindah lagu sendiri
-    const tambahan = rankRadio(d.queue, seed, Player.queue);
+    const tambahan = rankRadio(d.queue, seed, Player.queue).map((s) => ({ ...s, _radio: true }));
     if (!tambahan.length) return;
     Player.queue = Player.queue.concat(tambahan);
     persistQueue();
@@ -727,12 +754,21 @@ async function extendQueue(seed) {
 }
 
 /* Called on every change of song. Extends early rather than waiting for the
-   last one to finish, so nothing stalls at the hand over. */
+   last one to finish, so nothing stalls at the hand over.
+ *
+ * The seed is the last song somebody chose, not the last row of the queue.
+ * Seeding from the tail meant each batch of radio was based on the batch
+ * before it, so a playlist of one kind of music could wander somewhere else
+ * entirely after a few songs. Hanging every batch off the list itself keeps
+ * the continuation close to what was picked.
+ *
+ * Adding songs here is safe now that they are marked: they sit at the end and
+ * shuffle will not touch them until the chosen ones have all had their turn. */
 function maybeExtendQueue() {
   if (Player.cued || Player.repeat === 1) return;
   const sisa = Player.queue.length - 1 - Player.index;
   if (sisa > 3) return;
-  const seed = Player.queue[Player.queue.length - 1] || Player.current;
+  const seed = lastChosen() || Player.queue[Player.queue.length - 1] || Player.current;
   extendQueue(seed);
 }
 
@@ -755,10 +791,25 @@ async function fetchQueue(song) {
     Player.relatedBrowseId = d.relatedBrowseId;
     if (d.queue && d.queue.length > 1) {
       const current = Player.current;
-      const userUpcoming = Player.queue.filter((q, i) => i > Player.index && q._user);
-      const radio = rankRadio(d.queue, current, [current, ...userUpcoming]);
-      Player.queue = [current, ...userUpcoming, ...radio].filter(Boolean);
-      Player.index = 0;
+      const adaDaftar = Player.queue.some((q, i) => i !== Player.index && isChosen(q));
+      if (adaDaftar) {
+        /* There is a list running. Radio goes on the end of it and nothing
+           else moves.
+         *
+         * This used to rebuild the queue as [current, queued by hand, radio]
+         * and set the index back to zero, which threw away every song of the
+         * playlist that had not been reached yet. Somebody four songs into an
+         * album would find the rest of it gone. */
+        const radio = rankRadio(d.queue, lastChosen() || current, Player.queue)
+          .map((s) => ({ ...s, _radio: true }));
+        if (radio.length) Player.queue = Player.queue.concat(radio);
+      } else {
+        const userUpcoming = Player.queue.filter((q, i) => i > Player.index && q._user);
+        const radio = rankRadio(d.queue, current, [current, ...userUpcoming])
+          .map((s) => ({ ...s, _radio: true }));
+        Player.queue = [current, ...userUpcoming, ...radio].filter(Boolean);
+        Player.index = 0;
+      }
       renderQueue();
     }
     if (!Player.lyrics.synced && !Player.lyrics.plain) loadLyrics(Player.current, { silent: true });
@@ -775,35 +826,90 @@ async function fetchQueue(song) {
  * again and again while another never got a turn. Now it works like a shuffled
  * deck: every song comes out once before any of them repeats.
  */
+/* ---------- where a song in the queue came from ----------
+ *
+ * The queue holds two kinds of song and for a long time could not tell them
+ * apart. There are the ones somebody chose, a playlist, an album, or a song
+ * queued by hand, and there are the ones radio appended to keep the music
+ * going once the chosen ones run out.
+ *
+ * Without that distinction, shuffle drew from both pools at once and a
+ * four song playlist would jump to a stranger on its second track. Everything
+ * below hangs off this one question.
+ */
+function isChosen(q) { return !!q && !q._radio; }
+
+/* Positions of the chosen songs still ahead, in queue order. */
+function chosenAhead() {
+  const out = [];
+  for (let i = Player.index + 1; i < Player.queue.length; i++) {
+    if (isChosen(Player.queue[i])) out.push(i);
+  }
+  return out;
+}
+
+/* The last song somebody actually chose. Radio hangs off this rather than off
+   the tail of the queue, so a continuation stays close to the list somebody
+   picked instead of drifting further with each batch radio adds to itself. */
+function lastChosen() {
+  for (let i = Player.queue.length - 1; i >= 0; i--) {
+    if (isChosen(Player.queue[i])) return Player.queue[i];
+  }
+  return Player.current;
+}
+
+/* Names the chosen list so the shuffled deck can tell a genuinely new list
+   from the same list with radio hanging off the end. Keyed on the chosen songs
+   alone: radio appending itself must not reshuffle a deck already in play. */
+function chosenSignature() {
+  const ids = Player.queue.filter(isChosen).map((q) => q.videoId);
+  return ids.length + ':' + (ids[0] || '') + ':' + (ids[ids.length - 1] || '');
+}
+
 function resetShuffleBag() {
   Player.shuffleBag = null;
-  Player.shuffleBagFor = -1;
+  Player.shuffleBagFor = '';
 }
 
 function takeFromShuffleBag() {
   const n = Player.queue.length;
   if (!n) return -1;
-  // The queue changes in a dozen places, so the deck checks itself. Safer than
-  // trusting every caller to remember to reshuffle, and it means songs that
-  // have just arrived get their turn too.
-  if (Player.shuffleBagFor !== n) resetShuffleBag();
-  // Deliberately checks only for "never built", not for "empty". A spent deck
-  // is left empty so playback can come to a stop when repeat is off; the only
-  // thing that refills it is repeat all, through resetShuffleBag.
+
+  /* The deck is built from the chosen songs only. Radio is appended to the end
+     of the queue and is meant as a continuation, not as something to be drawn
+     among the songs somebody picked: shuffling a playlist should stay inside
+     that playlist. */
+  const sig = chosenSignature();
+  if (Player.shuffleBagFor !== sig) resetShuffleBag();
+
+  /* Checks only for "never built", not for "empty". A spent deck is left empty
+     so playback can come to a stop when repeat is off; the only thing that
+     refills it is repeat all, through resetShuffleBag. */
   if (!Array.isArray(Player.shuffleBag)) {
     const idx = [];
-    for (let i = 0; i < n; i++) if (i !== Player.index) idx.push(i);
+    for (let i = 0; i < n; i++) {
+      if (i !== Player.index && isChosen(Player.queue[i])) idx.push(i);
+    }
     for (let i = idx.length - 1; i > 0; i--) {           // Fisher Yates
       const j = Math.floor(Math.random() * (i + 1));
       [idx[i], idx[j]] = [idx[j], idx[i]];
     }
     Player.shuffleBag = idx;
-    Player.shuffleBagFor = n;
+    Player.shuffleBagFor = sig;
   }
-  // drop positions that no longer hold, say because the queue got shorter
+
+  // drop positions that no longer hold, say because the queue got shorter or
+  // the song that sat there is gone
   while (Player.shuffleBag.length) {
     const i = Player.shuffleBag.shift();
-    if (i < Player.queue.length && i !== Player.index) return i;
+    if (i < Player.queue.length && i !== Player.index && isChosen(Player.queue[i])) return i;
+  }
+
+  /* Every chosen song has had its turn. Only now does radio get a look in, and
+     in plain order: rankRadio already sorted it by how well it follows on, so
+     shuffling it again would throw that away. */
+  for (let i = Player.index + 1; i < Player.queue.length; i++) {
+    if (!isChosen(Player.queue[i])) return i;
   }
   return -1;
 }
@@ -1035,9 +1141,17 @@ function togglePlay() {
   if (!Player.current) return;
   if (Player.cued) {
     const s = Player.current;
-    const hasRadio = Player.queue.some((q, i) => i > Player.index && !q._user);
+    /* Is there already something to carry on with after this song?
+     *
+     * This used to ask whether any song ahead was not queued by hand, which
+     * read as no on the last song of a restored list, whatever was behind it.
+     * fetchQueue then ran and rebuilt the queue around that one song, so
+     * pressing play on a list that had been left near its end wiped the list.
+     * The question now is the one that was meant all along: has radio already
+     * put a continuation in. */
+    const adaSambungan = Player.queue.some((q, i) => i > Player.index && q._radio);
     startCurrent();
-    if (!hasRadio) fetchQueue(s);
+    if (!adaSambungan) fetchQueue(s);
     return;
   }
   if (!Player.yt || !Player.ready) return;
@@ -1713,7 +1827,7 @@ function likedCardHTML() {
   return `<div class="card liked-card" data-nav="#/library/favorites">
     <div class="art liked-cover">${icon('i-heart-f', 'ic liked-heart')}<div class="play-ov">${icon('i-play')}</div></div>
     <div class="t">${tr('nav.likedSongs')}</div>
-    <div class="s">${n} song${n === 1 ? '' : 's'}</div>
+    <div class="s">${tr('misc.songs', { n })}</div>
   </div>`;
 }
 function shelfHTML(sec) {
@@ -1875,7 +1989,7 @@ function renderSidebarLibrary() {
   }
   html += pls.map((p) => `<button class="lib-row" data-nav="#/localpl/${p.id}">
       ${coverHTML(p.tracks[0] && p.tracks[0].thumbnail, 'lib')}
-      <span class="lr-meta"><span class="lr-t">${esc(p.name)}</span><br><span class="lr-s">Playlist · ${p.tracks.length} song${p.tracks.length === 1 ? '' : 's'}</span></span>
+      <span class="lr-meta"><span class="lr-t">${esc(p.name)}</span><br><span class="lr-s">${tr('player.playlist')} · ${tr('misc.songs', { n: p.tracks.length })}</span></span>
     </button>`).join('');
   html += saved.map((it) => `<button class="lib-row ${it.type === 'artist' ? 'round' : ''}" data-item='${esc(JSON.stringify(it))}'>
       ${coverHTML(it.thumbnail, 'lib')}
@@ -1943,7 +2057,7 @@ async function viewHome(view) {
   const favs = Library.favorites.slice(0, 12);
   const pls = Library.playlists.filter((p) => p.tracks && p.tracks.length);
   const saved = Library.saved.slice(0, 12);
-  const dateLine = now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dateLine = formatDateLine(now);
   let html = `<div class="hello-row"><div><div class="greeting">${esc(dateLine)}</div><h1 class="page-title">${greet}</h1></div></div>`;
   if (hist.length) {
     html += `<div class="shelf-title">${tr('home.recentlyPlayed')}</div><div class="quick-grid">${hist.slice(0, 8).map((s) => quickCardHTML({ ...s, type: 'song', subtitle: s.artist })).join('')}</div>`;
@@ -1961,7 +2075,7 @@ async function viewHome(view) {
     html += `<div class="shelf"><div class="shelf-title">${tr('nav.yourPlaylists')}</div>
       ${carouselHTML(pls.map((p) => `<div class="card" data-pl="${esc(p.id)}">
         <div class="art">${coverHTML(p.tracks[0] && p.tracks[0].thumbnail)}<div class="play-ov">${icon('i-play')}</div></div>
-        <div class="t">${esc(p.name)}</div><div class="s">${p.tracks.length} song${p.tracks.length === 1 ? '' : 's'}</div>
+        <div class="t">${esc(p.name)}</div><div class="s">${tr('misc.songs', { n: p.tracks.length })}</div>
       </div>`).join(''))}</div>`;
   }
   if (saved.length) {
@@ -1989,13 +2103,13 @@ async function loadMixForYou() {
       type: 'song', videoId: q.videoId, title: q.title, subtitle: q.artist, thumbnail: q.thumbnail,
     }));
     if (!items.length) return;
-    slot.innerHTML = shelfHTML({ title: `Mix for you · based on “${seed.title}”`, items });
+    slot.innerHTML = shelfHTML({ title: tr('home.mixForYou', { title: seed.title }), items });
     bindItems(slot);
   } catch {}
 }
 
 /* ---- Search ---- */
-const SEARCH_TYPE_LABEL = { song: 'Songs', video: 'Videos', album: 'Albums', artist: 'Artists', playlist: 'Playlists', browse: 'More' };
+const SEARCH_TYPE_KEY = { song: 'search.songs', video: 'search.videos', album: 'search.albums', artist: 'search.artists', playlist: 'search.playlists', browse: 'search.more' };
 function pushRecentSearch(q) {
   q = String(q || '').trim();
   if (!q) return;
@@ -2065,7 +2179,7 @@ function searchResultsHTML(sections) {
   ['song', 'video', 'album', 'artist', 'playlist', 'browse'].forEach((t) => {
     const items = groups[t];
     if (!items.length) return;
-    const title = SEARCH_TYPE_LABEL[t];
+    const title = tr(SEARCH_TYPE_KEY[t]);
     html += (t === 'song' || t === 'video')
       ? `<div class="shelf"><div class="shelf-title">${title}</div><div class="track-list">${items.map((i) => trackRowHTML(i)).join('')}</div></div>`
       : `<div class="shelf"><div class="shelf-title">${title}</div>${carouselHTML(items.map(cardHTML).join(''))}</div>`;
@@ -2237,7 +2351,7 @@ async function viewSearch(view, q = '', filter = null) {
 async function viewCharts(view) {
   view.innerHTML = skeletonHTML;
   const d = await api('/api/charts');
-  const dateLine = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
+  const dateLine = formatDateLine(new Date());
   const secs = d.sections || [];
   let body = '';
   secs.forEach((sec, i) => {
@@ -2332,7 +2446,7 @@ function viewLibrary(view, tab) {
         <button class="pill-btn" id="btn-backup">${icon('i-download')}<span>${tr('lib.backup')}</span></button>
         <button class="pill-btn" id="btn-restore">${icon('i-upload')}<span>${tr('lib.restore')}</span></button>
       </div>`;
-    const cards = (Library.favorites.length ? likedCardHTML() : '') + pls.map((p) => `<div class="card" data-pl="${p.id}"><div class="art">${coverHTML(p.tracks[0] && p.tracks[0].thumbnail)}<div class="play-ov">${icon('i-play')}</div></div><div class="t">${esc(p.name)}</div><div class="s">${p.tracks.length} song${p.tracks.length === 1 ? '' : 's'}</div></div>`).join('');
+    const cards = (Library.favorites.length ? likedCardHTML() : '') + pls.map((p) => `<div class="card" data-pl="${p.id}"><div class="art">${coverHTML(p.tracks[0] && p.tracks[0].thumbnail)}<div class="play-ov">${icon('i-play')}</div></div><div class="t">${esc(p.name)}</div><div class="s">${tr('misc.songs', { n: p.tracks.length })}</div></div>`).join('');
     body += cards
       ? `<div class="lib-grid">${cards}</div>`
       : emptyHTML(tr('empty.playlists'), tr('empty.playlists.sub'), { ic: 'i-note' });
@@ -2412,10 +2526,10 @@ async function importFromLink(url) {
   if (r.kind === 'artist') { go(`#/artist/${r.id}`); return; }
   const d = await api(`/api/browse?id=${encodeURIComponent(r.id)}`);
   if (!d.tracks.length) { toast(tr('toast.noTracks')); return; }
-  const name = (d.header && d.header.title) || 'Imported playlist';
+  const name = (d.header && d.header.title) || tr('misc.importedPlaylist');
   const pl = Library.createPlaylist(name);
   d.tracks.forEach((t) => Library.addToPlaylist(pl.id, songFromItem(t)));
-  toast(`Imported "${name}" (${d.tracks.length} song${d.tracks.length === 1 ? '' : 's'})`);
+  toast(tr('toast.imported', { name, songs: tr('misc.songs', { n: d.tracks.length }) }));
   if ((location.hash || '').startsWith('#/library')) route();
   else go('#/library');
 }
@@ -2977,15 +3091,15 @@ function openAddToPlaylist(song) {
       </div>
       <input id="newpl-name" placeholder="${tr('misc.newPlaylistName')}">
       <button class="pill-btn primary" id="newpl-create" style="margin-bottom:12px">${tr('modal.createAndAdd')}</button>
-      ${pls.length ? `<div class="pl-list-label">Your playlists</div>` : ''}
+      ${pls.length ? `<div class="pl-list-label">${tr('nav.yourPlaylists')}</div>` : ''}
       ${pls.map((p) => {
         const cover = p.tracks[0] && p.tracks[0].thumbnail;
         const n = p.tracks.length;
         return `<button type="button" class="modal-row pl-pick" data-id="${p.id}">
           ${cover ? `<img class="pl-pick-art" src="${esc(cover)}" alt="">` : `<span class="pl-pick-ph">${icon('i-note')}</span>`}
-          <span class="pl-pick-meta"><span class="pl-pick-name">${esc(p.name)}</span><span class="pl-pick-count">${n} song${n === 1 ? '' : 's'}</span></span>
+          <span class="pl-pick-meta"><span class="pl-pick-name">${esc(p.name)}</span><span class="pl-pick-count">${tr('misc.songs', { n })}</span></span>
         </button>`;
-      }).join('') || '<div class="empty-note">No playlists yet</div>'}`;
+      }).join('') || `<div class="empty-note">${tr('misc.noPlaylistsYet')}</div>`}`;
     $('#q-playnext').addEventListener('click', () => { queueSong(song, true); closeModal(); });
     $('#q-add').addEventListener('click', () => { queueSong(song, false); closeModal(); });
     $('#newpl-create').addEventListener('click', () => {
