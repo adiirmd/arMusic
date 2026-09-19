@@ -23,11 +23,6 @@ const api = async (path) => {
  * en-US so the order stays day, date, month, year, matching the Indonesian
  * version: switching language then changes the words without shifting the
  * layout under them.
- */
-/* The date above the greeting.
- *
- * en-GB rather than en-US, so the order stays day, date, month, year in both
- * languages and the line does not jump about when the language is switched.
  *
  * Whether a comma follows the day depends on the browser: some put one there
  * already, others do not. The comma is normalised rather than simply added,
@@ -1880,7 +1875,7 @@ function bindItems(root) {
     el.addEventListener('click', (e) => {
       if (e.target.closest('.tbtn')) return;
       if (it.browseId && (it.type === 'album' || it.type === 'playlist' || it.type === 'artist')) openItem(it);
-      else if (it.videoId) openSongNowPlaying(songFromItem(it));
+      else if (it.videoId) openSongNowPlaying(songFromItem(it), listContext(el));
       else openItem(it);
     });
     const favBtn = $('.btn-fav', el);
@@ -1933,13 +1928,38 @@ function resetNpSeek(s) {
   const nd = $('#np-dur'); if (nd) nd.textContent = dur;
   const lp = $('#np-lyric-preview'); if (lp) lp.textContent = '';
 }
-function openSongNowPlaying(song) {
+/* The list a row belongs to, when that list is one the listener opened on
+   purpose: a playlist, an album, liked songs, history.
+ *
+ * Tapping a song used to hand playSong that one song and nothing else, so the
+ * queue held a single track and radio filled the rest. Starting the second
+ * song of a playlist meant never hearing the third: after it came whatever
+ * radio suggested. Search results and the shelves on Home are left out on
+ * purpose, since there a song is picked on its own rather than as part of
+ * something being played through. */
+function listContext(row) {
+  const list = row.closest && row.closest('.track-list[data-play-list]');
+  if (!list) return null;
+  const songs = [];
+  let index = -1;
+  for (const el of $$('.track', list)) {
+    let s = null;
+    try { s = songFromItem(JSON.parse(el.dataset.item)); } catch {}
+    if (!s || !s.videoId) continue;
+    if (el === row) index = songs.length;
+    songs.push(s);
+  }
+  return (index >= 0 && songs.length > 1) ? { songs, index } : null;
+}
+
+function openSongNowPlaying(song, ctx) {
   if (!song || !song.videoId) return;
   const same = Player.current && Player.current.videoId === song.videoId;
   if (!same) {
     // picking a track always switches playback to it; showing it in Now Playing
     // while the previous song kept playing read as the click being ignored
-    playSong(song);
+    if (ctx) playSong(song, ctx.songs, ctx.index);
+    else playSong(song);
   } else {
     Player.pending = null;
     renderNowPlaying();
@@ -2429,12 +2449,12 @@ function viewLibrary(view, tab) {
     const f = Library.favorites;
     body = f.length
       ? `<div class="lib-actions"><button class="pill-btn primary" id="fav-play">${icon('i-play')}<span>${tr('player.playAll')}</span></button> <button class="pill-btn" id="fav-shuffle">${icon('i-shuffle')}<span>${tr('player.shuffle')}</span></button></div>
-         ${trackHeadHTML()}<div class="track-list">${f.map((s, i) => trackRowHTML({ ...s, subtitle: s.artist, tn: i + 1 })).join('')}</div>`
+         ${trackHeadHTML()}<div class="track-list" data-play-list="1">${f.map((s, i) => trackRowHTML({ ...s, subtitle: s.artist, tn: i + 1 })).join('')}</div>`
       : emptyHTML(tr('empty.liked'), tr('empty.liked.sub'), { label: tr('empty.findSongs'), go: '#/search', ic: 'i-heart-o' });
   } else if (tab === 'history') {
     const h = Library.history;
     body = h.length
-      ? `${trackHeadHTML()}<div class="track-list">${h.map((s, i) => trackRowHTML({ ...s, subtitle: s.artist, tn: i + 1 })).join('')}</div>`
+      ? `${trackHeadHTML()}<div class="track-list" data-play-list="1">${h.map((s, i) => trackRowHTML({ ...s, subtitle: s.artist, tn: i + 1 })).join('')}</div>`
       : emptyHTML(tr('empty.history'), tr('empty.history.sub'), { label: tr('empty.browseHome'), go: '#/home', ic: 'i-clock' });
   } else if (tab === 'saved') {
     const sv = Library.saved;
@@ -2650,7 +2670,7 @@ function viewLocalPlaylist(view, pid) {
         <button class="pill-btn" id="pl-rename">${icon('i-note')}<span>${tr('modal.rename')}</span></button>
         <button class="pill-btn" id="pl-del">${icon('i-trash')}<span>${tr('modal.delete')}</span></button>
       </div></div></div>
-    ${rows ? trackHeadHTML() + `<div class="track-list">${rows}</div>` : emptyHTML(tr('empty.playlistEmpty'), tr('empty.playlistEmpty.sub'), { label: tr('empty.findSongs'), go: '#/search', ic: 'i-note' })}`;
+    ${rows ? trackHeadHTML() + `<div class="track-list" data-play-list="1">${rows}</div>` : emptyHTML(tr('empty.playlistEmpty'), tr('empty.playlistEmpty.sub'), { label: tr('empty.findSongs'), go: '#/search', ic: 'i-note' })}`;
   bindItems(view);
   $$('.btn-rm', view).forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2724,7 +2744,7 @@ async function viewBrowse(view, id, kind, extraParams) {
   if (d.tracks.length) {
     const headerArtist = (h.artists && h.artists[0] && h.artists[0].name) || h.strapline || '';
     const headerArtistId = (h.artists && h.artists[0] && h.artists[0].browseId) || '';
-    html += `${trackHeadHTML()}<div class="track-list">${d.tracks.map((t, i) => {
+    html += `${trackHeadHTML()}<div class="track-list" data-play-list="1">${d.tracks.map((t, i) => {
       const fromArr = (t.artists || []).map((a) => a.name).filter(Boolean).join(', ');
       const artist = t.artist || fromArr || headerArtist;
       return trackRowHTML({
