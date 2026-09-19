@@ -10,8 +10,17 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 
 const icon = (id, cls = 'ic') => `<svg class="${cls}"><use href="#${id}"/></svg>`;
 
+/* Every call carries the language the app is set to.
+ *
+ * Without it the server asked YouTube Music in Indonesian no matter what, and
+ * the words that came back could not be fixed anywhere on this side: the kind
+ * of thing on a song row, the shelf titles on Home, the group headings in
+ * search. The country is not sent, because that would move the charts and the
+ * recommendations to another country, which is a different thing entirely. */
 const api = async (path) => {
-  const r = await fetch(path);
+  const lang = (typeof I18N !== 'undefined' && I18N.currentLang() === 'id') ? 'id' : 'en';
+  const url = path + (path.includes('?') ? '&' : '?') + 'hl=' + lang;
+  const r = await fetch(url);
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
   return r.json();
 };
@@ -511,7 +520,7 @@ function slimSong(s) {
   return {
     videoId: s.videoId,
     title: s.title || '',
-    artist: s.artist || s.subtitle || '',
+    artist: displayArtist(s.artist || s.subtitle || ''),
     thumbnail: s.thumbnail || '',
     duration: s.duration || '',
     playlistId: s.playlistId || '',
@@ -1013,7 +1022,7 @@ function setMediaMetadata(s) {
   if (!s || !('mediaSession' in navigator)) return;
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: s.title || '', artist: s.artist || s.subtitle || '',
+      title: s.title || '', artist: displayArtist(s.artist || s.subtitle || ''),
       artwork: s.thumbnail ? [{ src: s.thumbnail, sizes: '544x544' }] : [],
     });
   } catch {}
@@ -1437,7 +1446,7 @@ function renderNowPlaying() {
     const title = displayTitle(mini.title) || mini.title || '';
     mt.textContent = title;
     mt.title = title;
-    const artist = mini.artist || mini.subtitle || '';
+    const artist = displayArtist(mini.artist || mini.subtitle || '');
     ma.textContent = artist;
     ma.title = artist;
     setArtistLink(ma, !!(songArtistBrowseId(mini) || artist.trim()));
@@ -1446,7 +1455,7 @@ function renderNowPlaying() {
   $('#np-art').src = safeCover(np.thumbnail) || COVER_PH;
   $('#np-title').textContent = np.title;
   const artEl = $('#np-artist');
-  artEl.textContent = np.artist || np.subtitle || '';
+  artEl.textContent = displayArtist(np.artist || np.subtitle || '');
   setArtistLink(artEl, !!(songArtistBrowseId(np) || (np.artist || '').trim()));
   $('#np-bg').style.backgroundImage = np.thumbnail ? `url("${np.thumbnail}")` : 'none';
   syncFloatWidget();
@@ -1735,6 +1744,45 @@ function displayTitle(t) {
     .trim();
   return cleaned || raw;
 }
+/* The line under a song title, cut back to the name of whoever made it.
+ *
+ * When YouTube Music gives no separate list of artists, all there is to go on
+ * is its own subtitle line, which reads "Song • Yeat • 2:41". Taken whole it
+ * put the word for the kind of thing and the running time into the artist,
+ * so a row showed "Lagu • Yeat • 2.41" with the length column left empty
+ * beside it — and the word for the kind of thing came in whatever language
+ * YouTube was asked in, which is how Indonesian turned up in the English app.
+ *
+ * Both words are dropped here rather than at the source alone, because songs
+ * saved before this already carry the long version. Nothing in storage is
+ * rewritten: what changes is what gets drawn.
+ */
+const KIND_WORDS = /^(lagu|song|video|album|artis|artist|penyanyi|single|ep|playlist|daftar putar|episode|podcast)$/i;
+const DURATION_LIKE = /^\d{1,2}([:.]\d{2}){1,2}$/;
+
+function splitSubtitle(raw) {
+  return String(raw || '').split('•').map((p) => p.trim()).filter(Boolean);
+}
+
+function displayArtist(raw) {
+  const asli = String(raw || '').trim();
+  if (!asli || !asli.includes('•')) return asli;
+  let parts = splitSubtitle(asli);
+  if (parts.length > 1 && KIND_WORDS.test(parts[0])) parts = parts.slice(1);
+  if (parts.length > 1 && DURATION_LIKE.test(parts[parts.length - 1])) parts = parts.slice(0, -1);
+  // never hand back nothing: a line made only of the parts we drop stays as it was
+  return parts.join(' • ').trim() || asli;
+}
+
+/* The running time hiding at the end of that same subtitle line. Worth picking
+   up, because the row it belongs to often has no duration of its own and shows
+   a dash where the length should be. */
+function durationFromSubtitle(raw) {
+  const parts = splitSubtitle(raw);
+  const last = parts[parts.length - 1];
+  return last && DURATION_LIKE.test(last) ? normalizeDuration(last) : '';
+}
+
 function normalizeSong(s) {
   if (!s) return s;
   return { ...s, title: displayTitle(s.title) };
@@ -1743,12 +1791,15 @@ function songFromItem(it) {
   const artists = it.artists || [];
   const artistBrowseId = it.artistBrowseId || (artists[0] && artists[0].browseId) || '';
   const fromArr = artists.map((a) => a.name).filter(Boolean).join(', ');
-  const artist = fromArr || it.artist || (looksLikePlays(it.subtitle) ? '' : (it.subtitle || ''));
+  const subtitle = looksLikePlays(it.subtitle) ? '' : (it.subtitle || '');
+  const artist = fromArr || it.artist || displayArtist(subtitle);
   return normalizeSong({
     videoId: it.videoId, title: it.title,
     artist,
     artistBrowseId,
-    thumbnail: it.thumbnail, duration: normalizeDuration(it.duration), playlistId: it.playlistId,
+    thumbnail: it.thumbnail,
+    duration: normalizeDuration(it.duration) || durationFromSubtitle(subtitle),
+    playlistId: it.playlistId,
   });
 }
 const COVER_PH = 'data:image/svg+xml,' + encodeURIComponent(
@@ -1768,7 +1819,7 @@ function cardHTML(it) {
   const cls = it.type === 'artist' ? 'card artist' : 'card';
   return `<div class="${cls}" data-item='${esc(JSON.stringify(it))}'>
     <div class="art">${coverHTML(it.thumbnail)}<div class="play-ov">${icon('i-play')}</div></div>
-    <div class="t">${esc(it.title)}</div><div class="s">${esc(it.subtitle || '')}</div>
+    <div class="t">${esc(it.title)}</div><div class="s">${esc(displayArtist(it.subtitle || ''))}</div>
   </div>`;
 }
 function trackRowHTML(it, playing = false, extraBtn = '') {
@@ -1781,8 +1832,13 @@ function trackRowHTML(it, playing = false, extraBtn = '') {
     <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
     ${tn}${qn}
     ${coverHTML(it.thumbnail, 'track')}
-    <div class="tmeta"><div class="tt">${esc(displayTitle(it.title))}</div><div class="ts">${esc(it.artist || it.subtitle || '')}</div></div>
-    <span class="tdur">${it.duration ? esc(it.duration) : '<span class="tdur-none">–</span>'}</span>
+    <div class="tmeta"><div class="tt">${esc(displayTitle(it.title))}</div><div class="ts">${esc(displayArtist(it.artist || it.subtitle || ''))}</div></div>
+    <span class="tdur">${(() => {
+      // a song saved before the subtitle was taken apart still carries its
+      // length in there, so a dash is only right when there really is none
+      const d = it.duration || durationFromSubtitle(it.artist || it.subtitle);
+      return d ? esc(d) : '<span class="tdur-none">–</span>';
+    })()}</span>
     <button class="tbtn btn-fav" title="${tr('player.favorite')}">${icon(Library.isFav(it.videoId) ? 'i-heart-f' : 'i-heart-o')}</button>
     <button class="tbtn btn-queue" title="${tr('player.addToQueue')}">${icon('i-queue')}</button>
     <button class="tbtn btn-addpl" title="${tr('modal.addToPlaylist')}">${icon('i-plus')}</button>
@@ -2165,7 +2221,7 @@ function topResultHTML(it) {
     <div class="sr-meta">
       <div class="sr-kicker">${tr('search.topResult')}</div>
       <div class="sr-title">${esc(displayTitle(it.title) || it.title)}</div>
-      <div class="sr-sub">${esc(it.subtitle || it.artist || '')}</div>
+      <div class="sr-sub">${esc(displayArtist(it.subtitle || it.artist || ''))}</div>
       <span class="pill-btn primary">${icon(ic)}<span>${cta}</span></span>
     </div>
   </button>`;
@@ -2331,13 +2387,18 @@ function bindSearchChrome(view, q, filter) {
   if (clr) clr.addEventListener('click', () => { store.set('srec', []); viewSearch(view, '', filter); });
 }
 async function viewSearch(view, q = '', filter = null) {
-  const filters = ['all', 'songs', 'videos', 'albums', 'artists', 'playlists'];
+  // the label is looked up, not made out of the name itself: capitalising the
+  // name gave All, Songs, Videos and so on, in English, in both languages
+  const filters = [
+    ['all', 'search.all'], ['songs', 'search.songs'], ['videos', 'search.videos'],
+    ['albums', 'search.albums'], ['artists', 'search.artists'], ['playlists', 'search.playlists'],
+  ];
   const hist = !q ? Library.history.slice(0, 6) : [];
   view.innerHTML = `
     ${q ? '' : `<div class="page-title">${tr('nav.search')}</div>`}
     <div class="search-bar${q ? ' has-q' : ''}">${icon('i-search', 'ic search-ic')}<input id="search-input" placeholder="${tr('search.placeholder')}" value="${esc(q)}" autocomplete="off" spellcheck="false"><button type="button" class="search-clear" id="search-clear" title="${tr('misc.clear')}">${icon('i-x')}</button></div>
     <div class="suggest" id="suggest"></div>
-    ${q ? `<div class="search-chips">${filters.map((f) => `<button type="button" class="chip ${((filter || 'all') === f) ? 'active' : ''}" data-f="${f}">${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}</div>` : recentSearchHTML()}
+    ${q ? `<div class="search-chips">${filters.map(([f, k]) => `<button type="button" class="chip ${((filter || 'all') === f) ? 'active' : ''}" data-f="${f}">${tr(k)}</button>`).join('')}</div>` : recentSearchHTML()}
     <div id="search-results">${q
       ? `<div class="loading-note">${tr('search.searching')}</div>`
       : `${hist.length ? `<div class="shelf"><div class="shelf-title">${tr('home.recentlyPlayed')}</div><div class="track-list">${hist.map((s) => trackRowHTML({ ...s, subtitle: s.artist })).join('')}</div></div>` : ''}<div id="browse-all"><div class="shelf-title">${tr('home.browseAll')}</div><div class="mood-grid" id="browse-grid"><div class="loading-note">Loading…</div></div></div>`}</div>`;
@@ -2798,7 +2859,7 @@ function openSongMenu(song, opts = {}) {
     `<button type="button" class="modal-row${disabled ? ' disabled' : ''}" data-act="${act}"${disabled ? ' disabled' : ''}>${icon(ic)}<span>${label}</span></button>`;
   body.innerHTML = `<div class="sm-head">
       ${coverHTML(song.thumbnail, 'sm')}
-      <div class="sm-meta"><div class="sm-t">${esc(displayTitle(song.title))}</div><div class="sm-s">${esc(song.artist || song.subtitle || '')}</div></div>
+      <div class="sm-meta"><div class="sm-t">${esc(displayTitle(song.title))}</div><div class="sm-s">${esc(displayArtist(song.artist || song.subtitle || ''))}</div></div>
     </div>
     ${row('next', 'i-next', 'Play next')}
     ${row('queue', 'i-queue', 'Add to queue')}
@@ -3444,7 +3505,7 @@ function syncFloatWidget() {
     const play = doc.querySelector('[data-fw="play"]');
     if (art && s) art.src = safeCover(s.thumbnail) || COVER_PH;
     if (title) title.textContent = s ? s.title : '—';
-    if (artist) artist.textContent = s ? (s.artist || s.subtitle || '') : '—';
+    if (artist) artist.textContent = s ? displayArtist(s.artist || s.subtitle || '') : '—';
     if (play) play.innerHTML = ic;
   }
   $('#mini-float')?.classList.toggle('on', Player.floatOn);
@@ -3683,7 +3744,7 @@ function drawPipFrame(pct) {
   ctx.fillText(clipText(ctx, (s && displayTitle(s.title)) || 'AR Music', maxW), tx, artY + 36);
   ctx.fillStyle = 'rgba(233,239,249,0.72)';
   ctx.font = '600 18px "Plus Jakarta Sans", Segoe UI, sans-serif';
-  ctx.fillText(clipText(ctx, (s && (s.artist || s.subtitle)) || '', maxW), tx, artY + 64);
+  ctx.fillText(clipText(ctx, displayArtist((s && (s.artist || s.subtitle)) || ''), maxW), tx, artY + 64);
 
   // penanda keadaan, jeda atau berjalan
   const berjalan = !document.body.classList.contains('paused');
@@ -4109,6 +4170,25 @@ const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
 let bgHintShown = false;
 
+/* Telling the browser's pause apart from the listener's.
+ *
+ * Everything below was built on one assumption: while the page is hidden, a
+ * pause can only have come from the browser. That holds for the second the tab
+ * is left, which is the whole reason this code exists. It stops holding a
+ * minute later, when the person reaches for the notification themselves.
+ *
+ * What happened then was that pressing pause did nothing. The music stopped
+ * for an instant and came straight back, because this watchdog read a
+ * deliberate pause as the browser's and pushed play again.
+ *
+ * So the pause is only fought while the music has not yet proved it can run in
+ * the background. Once it has run for a few seconds with the page hidden,
+ * anything that stops it after that came from a person.
+ */
+const BG_SETTLE_MS = 6000;
+let bgHiddenAt = 0;
+let bgSettled = false;
+
 /* Pushing the YouTube frame to start again only makes sense where that is
  * actually allowed, which is the desktop site and anything that is not a
  * phone. On a phone in normal mode the request is always refused, and pressing
@@ -4119,10 +4199,23 @@ function mayForceResume() {
   return !isPhoneDefaultMode();
 }
 
+/* A pause nobody is going to fight is a pause somebody meant.
+ *
+ * Recording it matters as much as not fighting it. Left alone, wantPlaying
+ * would stay true, and returning to the tab would start the music again from
+ * the visibilitychange handler below. */
+function acceptPause() {
+  if (!Player.wantPlaying) return;
+  Player.wantPlaying = false;
+  try { syncMediaSession(false); } catch {}
+  try { renderPlayButtons(); } catch {}
+}
+
 function resumeIfBackgroundPause(state) {
   if (!document.hidden || !Player.wantPlaying || Player.cued) return;
   if (state !== YT.PlayerState.PAUSED) return;
   if (!mayForceResume()) return;
+  if (bgSettled) { acceptPause(); return; }
   if (bgResumeTries >= BG_RESUME_MAX) return;
   bgResumeTries++;
   try { PB.play(); } catch {}
@@ -4131,6 +4224,8 @@ function resumeIfBackgroundPause(state) {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     bgResumeTries = 0;
+    bgHiddenAt = Date.now();
+    bgSettled = false;
     // kesempatan terakhir menjadi pemilik sesi media sebelum notifikasinya
     // dipakai, lihat catatan di assertMediaSession
     assertMediaSession();
@@ -4163,6 +4258,8 @@ document.addEventListener('visibilitychange', () => {
     }
   }
   bgResumeTries = 0;
+  bgHiddenAt = 0;
+  bgSettled = false;
 });
 
 // Backstop for a browser that pauses without reporting a state change.
@@ -4171,14 +4268,19 @@ setInterval(() => {
   if (!document.hidden) { bgResumeTries = 0; return; }
   if (!Player.wantPlaying || Player.cued) return;
   if (!mayForceResume()) return;
-  if (bgResumeTries >= BG_RESUME_MAX) return;
   let st = -1;
   try { st = PB.state(); } catch { return; }
   if (st === YT.PlayerState.PAUSED) {
+    if (bgSettled) { acceptPause(); return; }
+    if (bgResumeTries >= BG_RESUME_MAX) return;
     bgResumeTries++;
     try { PB.play(); } catch {}
   } else if (st === YT.PlayerState.PLAYING) {
     bgResumeTries = 0;
+    // Music running this long with the page hidden means the background is not
+    // the problem here. From now on a pause is somebody's doing, not the
+    // browser's, and nothing below will argue with it.
+    if (bgHiddenAt && Date.now() - bgHiddenAt > BG_SETTLE_MS) bgSettled = true;
   }
 }, 1500);
 

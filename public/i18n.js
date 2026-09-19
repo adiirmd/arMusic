@@ -107,6 +107,7 @@ const DICT = {
     'search.playlists': 'Playlists',
     'search.videos': 'Videos',
     'search.more': 'More',
+    'search.all': 'All',
 
     /* ---------- library ---------- */
     'lib.playlists': 'Playlists',
@@ -387,6 +388,7 @@ const DICT = {
     'search.playlists': 'Daftar putar',
     'search.videos': 'Video',
     'search.more': 'Lainnya',
+    'search.all': 'Semua',
 
     /* ---------- library ---------- */
     'lib.playlists': 'Daftar putar',

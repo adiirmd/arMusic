@@ -7,11 +7,14 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const YTM = 'https://music.youtube.com/youtubei/v1';
+/* gl is the country and decides which charts and recommendations come back,
+   so it stays put. hl is the language and is filled in per request by
+   contextFor below, because it follows whatever the app is set to. */
 const CONTEXT = {
   client: {
     clientName: 'WEB_REMIX',
     clientVersion: '1.20240101.00.00',
-    hl: 'id',
+    hl: 'en',
     gl: 'ID',
   },
 };
@@ -23,11 +26,29 @@ const HEADERS = {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
 };
 
-async function yt(endpoint, body = {}, query = '') {
+/* The language YouTube Music answers in.
+ *
+ * It used to be written straight into CONTEXT as Indonesian, so every word
+ * coming back was Indonesian whatever language the app was set to: the kind
+ * word on a song row, the shelf titles on Home, the group headings in search.
+ * None of that could be fixed on the page, because the page never saw an
+ * English version of it.
+ *
+ * The country is a separate matter and stays as it is. It decides which charts
+ * and recommendations come back, and moving those abroad was never the ask.
+ */
+function langOf(req) {
+  return (req && req.query && req.query.hl) === 'id' ? 'id' : 'en';
+}
+function contextFor(hl) {
+  return { client: { ...CONTEXT.client, hl: hl === 'id' ? 'id' : 'en' } };
+}
+
+async function yt(endpoint, body = {}, query = '', hl = 'en') {
   const res = await fetch(`${YTM}/${endpoint}?prettyPrint=false${query}`, {
     method: 'POST',
     headers: HEADERS,
-    body: JSON.stringify({ context: CONTEXT, ...body }),
+    body: JSON.stringify({ context: contextFor(hl), ...body }),
   });
   if (!res.ok) throw new Error(`YTM ${endpoint} -> ${res.status}`);
   return res.json();
@@ -216,8 +237,9 @@ function cached(key, ttlMs, fn) {
 
 app.get('/api/home', async (req, res) => {
   try {
-    const data = await cached('home_ID', 10 * 60 * 1000, async () => {
-      let d = await yt('browse', { browseId: 'FEmusic_home' });
+    const hl = langOf(req);
+    const data = await cached('home_' + hl, 10 * 60 * 1000, async () => {
+      let d = await yt('browse', { browseId: 'FEmusic_home' }, '', hl);
       let sections = [];
       let sl = findFirst(d, 'sectionListRenderer');
       if (sl) sections = parseSections(sl.contents);
@@ -225,7 +247,7 @@ app.get('/api/home', async (req, res) => {
       let cont = sl && sl.continuations && sl.continuations[0] && sl.continuations[0].nextContinuationData;
       let n = 0;
       while (cont && n < 3) {
-        const d2 = await yt('browse', {}, `&ctoken=${cont.continuation}&continuation=${cont.continuation}&type=next`);
+        const d2 = await yt('browse', {}, `&ctoken=${cont.continuation}&continuation=${cont.continuation}&type=next`, hl);
         const slc = findFirst(d2, 'sectionListContinuation');
         if (!slc) break;
         sections = sections.concat(parseSections(slc.contents));
@@ -242,8 +264,9 @@ app.get('/api/home', async (req, res) => {
 
 app.get('/api/charts', async (req, res) => {
   try {
-    const data = await cached('charts', 30 * 60 * 1000, async () => {
-      const d = await yt('browse', { browseId: 'FEmusic_charts' });
+    const hl = langOf(req);
+    const data = await cached('charts_' + hl, 30 * 60 * 1000, async () => {
+      const d = await yt('browse', { browseId: 'FEmusic_charts' }, '', hl);
       const sl = findFirst(d, 'sectionListRenderer');
       return { sections: sl ? parseSections(sl.contents) : [] };
     });
@@ -274,8 +297,9 @@ app.get('/api/sponsorblock', async (req, res) => {
 
 app.get('/api/moods', async (req, res) => {
   try {
-    const data = await cached('moods', 60 * 60 * 1000, async () => {
-      const d = await yt('browse', { browseId: 'FEmusic_moods_and_genres' });
+    const hl = langOf(req);
+    const data = await cached('moods_' + hl, 60 * 60 * 1000, async () => {
+      const d = await yt('browse', { browseId: 'FEmusic_moods_and_genres' }, '', hl);
       const cats = findAll(d, 'musicNavigationButtonRenderer').map((b) => ({
         title: text(b.buttonText),
         color: b.solid ? '#' + (b.solid.leftStripeColor >>> 0).toString(16).padStart(8, '0').slice(2) : null,
@@ -305,7 +329,7 @@ app.get('/api/search', async (req, res) => {
     const filter = req.query.filter;
     const body = { query: q };
     if (filter && SEARCH_PARAMS[filter]) body.params = SEARCH_PARAMS[filter];
-    const d = await yt('search', body);
+    const d = await yt('search', body, '', langOf(req));
     const sections = [];
     const shelves = findAll(d, 'musicShelfRenderer');
     for (const shelf of shelves) {
@@ -352,7 +376,7 @@ app.get('/api/search', async (req, res) => {
 
 app.get('/api/suggest', async (req, res) => {
   try {
-    const d = await yt('music/get_search_suggestions', { input: req.query.q || '' });
+    const d = await yt('music/get_search_suggestions', { input: req.query.q || '' }, '', langOf(req));
     const sugg = findAll(d, 'searchSuggestionRenderer').map((s) => text(s.suggestion));
     res.json({ suggestions: sugg });
   } catch (e) {
@@ -374,7 +398,7 @@ app.get('/api/next', async (req, res) => {
       body.playlistId = req.query.playlistId;
     }
     if (req.query.params) body.params = req.query.params;
-    const d = await yt('next', body);
+    const d = await yt('next', body, '', langOf(req));
     const panels = findAll(d, 'playlistPanelVideoRenderer');
     const queue = panels.map((p) => ({
       videoId: p.videoId,
@@ -402,7 +426,7 @@ app.get('/api/next', async (req, res) => {
 
 app.get('/api/related', async (req, res) => {
   try {
-    const d = await yt('browse', { browseId: req.query.browseId });
+    const d = await yt('browse', { browseId: req.query.browseId }, '', langOf(req));
     const sl = findFirst(d, 'sectionListRenderer');
     let sections = sl ? parseSections(sl.contents) : [];
     // some related pages use grids instead of carousels/shelves
@@ -425,12 +449,12 @@ app.get('/api/related', async (req, res) => {
 });
 
 /* album / playlist / artist / mood pages */
-async function browsePage(rawId, params) {
+async function browsePage(rawId, params, hl = 'en') {
   let id = rawId || '';
   if (/^(PL|RDCLAK|VLPL|OLAK)/.test(id) && !id.startsWith('VL')) id = 'VL' + id;
   const body = { browseId: id };
   if (params) body.params = params;
-  const d = await yt('browse', body);
+  const d = await yt('browse', body, '', hl);
 
     // header
     let header = null;
@@ -503,7 +527,7 @@ async function browsePage(rawId, params) {
 
 app.get('/api/browse', async (req, res) => {
   try {
-    res.json(await browsePage(req.query.id, req.query.params));
+    res.json(await browsePage(req.query.id, req.query.params, langOf(req)));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -802,6 +826,9 @@ app.get('/api/lyrics', async (req, res) => {
     if (browseId) {
       try {
         const body = {
+          // Indonesian on purpose and not following the app. What is being
+          // looked for here is the words of a song, not interface wording, and
+          // changing it only changes which lyrics turn up.
           context: { client: { ...CONTEXT.client, hl: 'id', gl: 'ID' } },
           browseId,
         };
