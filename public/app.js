@@ -514,7 +514,14 @@ function lepasMesinAudio(lanjutkanDiBingkai) {
 function operKeAudio(videoId, url) {
   const a = elemenAudio();
   const sedangJalan = PB.state() === YT.PlayerState.PLAYING;
+  Diag.add('mesin', 'memuat berkas audio, hidden=' + document.hidden);
   a.src = url;
+  // Kalau berkasnya tidak pernah sampai siap, tanpa ini catatannya berhenti
+  // di 'memuat' tanpa keterangan apa apa.
+  const kabar = (nama) => () => Diag.add('audio', nama + ' | siap=' + a.readyState + ' hidden=' + document.hidden);
+  for (const n of ['loadedmetadata', 'canplay', 'stalled', 'suspend', 'waiting', 'abort']) {
+    a.addEventListener(n, kabar(n), { once: true });
+  }
   const jalankan = () => {
     a.removeEventListener('canplay', jalankan);
     if (!Player.current || Player.current.videoId !== videoId) return;
@@ -550,12 +557,18 @@ function operKeAudio(videoId, url) {
 /* Dipanggil tiap kali lagu mulai. Tidak menunggu apa pun: lagunya sudah
    berbunyi dari bingkai sejak tadi, ini cuma menyiapkan penggantinya. */
 async function siapkanMesinAudio(song) {
-  if (!pakaiMesinAudio() || !song || !song.videoId) return;
+  if (!song || !song.videoId) return;
+  if (!pakaiMesinAudio()) { Diag.add('mesin', 'dilewati, bukan perangkat sentuh'); return; }
   const videoId = song.videoId;
+  Diag.add('mesin', 'mencari alamat audio ' + videoId);
   const url = await Aliran.cari(videoId);
-  if (url && Player.current && Player.current.videoId === videoId && !PB.pakaiAudio) {
-    operKeAudio(videoId, url);
+  if (!url) { Diag.add('mesin', 'tidak ada alamat untuk ' + videoId); return; }
+  if (!Player.current || Player.current.videoId !== videoId) {
+    Diag.add('mesin', 'alamat datang tapi lagunya sudah ganti');
+    return;
   }
+  if (PB.pakaiAudio) { Diag.add('mesin', 'sudah dipegang elemen audio'); return; }
+  operKeAudio(videoId, url);
   // satu lagu berikutnya disiapkan lebih awal, supaya pengoperan berikutnya
   // bisa terjadi di awal lagu, bukan di tengah. Hanya satu, karena tiap
   // pencarian berarti satu berkas yang diunduh.
@@ -4126,9 +4139,23 @@ const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
 let bgHintShown = false;
 
+/* Memaksa bingkai YouTube jalan lagi hanya masuk akal di tempat yang memang
+ * mengizinkannya, yaitu mode desktop dan perangkat bukan ponsel. Di ponsel
+ * mode biasa permintaannya selalu ditolak, dan menahannya berkali kali bukan
+ * cuma sia sia: tiap percobaan sempat mengeluarkan bunyi sepenggal sebelum
+ * dihentikan lagi, jadi yang terdengar adalah suara putus putus seperti
+ * tersendat. Lebih baik diam.
+ *
+ * Kalau suaranya sudah dipegang elemen audio, penahanan ini tetap berguna,
+ * karena yang diminta jalan lagi adalah elemen kita sendiri. */
+function bolehPaksaLanjut() {
+  return PB.pakaiAudio || !isPhoneDefaultMode();
+}
+
 function resumeIfBackgroundPause(state) {
   if (!document.hidden || !Player.wantPlaying || Player.cued) return;
   if (state !== YT.PlayerState.PAUSED) return;
+  if (!bolehPaksaLanjut()) return;
   if (bgResumeTries >= BG_RESUME_MAX) return;
   bgResumeTries++;
   try { PB.play(); } catch {}
@@ -4171,6 +4198,7 @@ setInterval(() => {
   if (!Player.yt || !Player.ready) return;
   if (!document.hidden) { bgResumeTries = 0; return; }
   if (!Player.wantPlaying || Player.cued) return;
+  if (!bolehPaksaLanjut()) return;
   if (bgResumeTries >= BG_RESUME_MAX) return;
   let st = -1;
   try { st = PB.state(); } catch { return; }
