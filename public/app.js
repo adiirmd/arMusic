@@ -94,6 +94,67 @@ function isPreviewing() {
   return !!(Player.pending && (!Player.current || Player.pending.videoId !== Player.current.videoId));
 }
 
+/* ================= pencatat kejadian untuk pemeriksaan ================= */
+/* Ringan dan selalu menyala. Dipakai untuk memeriksa perilaku di perangkat
+   yang tidak bisa dicoba langsung, terutama pemutaran di latar belakang dan
+   jendela picture-in-picture di ponsel. Isinya dilihat di halaman #/log,
+   tidak pernah dikirim ke mana pun kecuali Anda sendiri yang menyalinnya. */
+const Diag = {
+  max: 250,
+  rows: [],
+  t0: Date.now(),
+  add(tag, detail) {
+    try {
+      this.rows.push({ t: Date.now() - this.t0, tag, detail: detail == null ? '' : String(detail) });
+      if (this.rows.length > this.max) this.rows.shift();
+    } catch {}
+  },
+  text() {
+    const aset = (document.querySelector('script[src*="app.js"]') || {}).getAttribute
+      ? document.querySelector('script[src*="app.js"]').getAttribute('src') : '?';
+    const kepala = [
+      'AR Music, catatan pemeriksaan',
+      'waktu      : ' + new Date().toISOString(),
+      'perangkat  : ' + navigator.userAgent,
+      'layar      : ' + window.innerWidth + 'x' + window.innerHeight + ' dpr ' + (window.devicePixelRatio || 1),
+      'berkas     : ' + aset,
+      'documentPiP: ' + ('documentPictureInPicture' in window),
+      'videoPiP   : ' + (document.pictureInPictureEnabled === true),
+      'mediaSess  : ' + ('mediaSession' in navigator),
+      'dalam apl  : ' + document.documentElement.classList.contains('in-app'),
+      '',
+    ].join('\n');
+    const isi = this.rows
+      .map((r) => (r.t / 1000).toFixed(1).padStart(7) + 's  ' + r.tag + (r.detail ? '  ' + r.detail : ''))
+      .join('\n');
+    return kepala + (isi || '(belum ada kejadian)');
+  },
+};
+window.Diag = Diag;
+
+/* Disimpan ke perangkat, karena bagian yang paling menarik justru terjadi
+   ketika halamannya disembunyikan atau dimatikan browser, dan catatan yang
+   hanya ada di memori akan ikut hilang di situ. */
+Diag.simpan = function () {
+  try { localStorage.setItem('armusic_diag', JSON.stringify(this.rows.slice(-this.max))); } catch {}
+};
+Diag.muat = function () {
+  try {
+    const lama = JSON.parse(localStorage.getItem('armusic_diag') || '[]');
+    if (Array.isArray(lama) && lama.length) {
+      this.rows = lama.concat([{ t: 0, tag: '--- halaman dimuat ulang ---', detail: '' }]);
+      this.t0 = Date.now();
+    }
+  } catch {}
+};
+Diag.muat();
+document.addEventListener('visibilitychange', () => { if (document.hidden) Diag.simpan(); });
+window.addEventListener('pagehide', () => Diag.simpan());
+setInterval(() => Diag.simpan(), 5000);
+
+window.addEventListener('error', (e) => Diag.add('error', (e && e.message) || ''));
+window.addEventListener('unhandledrejection', (e) => Diag.add('error-promise', (e && e.reason && e.reason.message) || ''));
+
 /* ================= local library (localStorage) ================= */
 const KEY = 'armusic_';
 const OLD_KEY = 'smw_';
@@ -330,6 +391,8 @@ window.onYouTubeIframeAPIReady = () => {
           setTimeout(applyPlaybackQuality, 2000);
         }
         if (e.data === YT.PlayerState.BUFFERING) applyPlaybackQuality();
+        Diag.add('yt', ({ '-1': 'belum mulai', 0: 'selesai', 1: 'memutar', 2: 'dijeda', 3: 'memuat', 5: 'siap' }[e.data] || e.data)
+          + ' | hidden=' + document.hidden + ' float=' + !!Player.floatOn);
         if (e.data === YT.PlayerState.PLAYING) Player.wantPlaying = true;
         resumeIfBackgroundPause(e.data);
         syncMediaSession(e.data === YT.PlayerState.PLAYING);
@@ -808,6 +871,7 @@ function commandPause() {
    keadaannya sudah sesuai tidak melakukan apa-apa. 'toggle' tetap diterima
    demi aplikasi versi lama yang masih mengirimnya. */
 window.ARMusicCommand = function (cmd) {
+  Diag.add('perintah', cmd);
   try {
     if (cmd === 'play') { if (!isPlayingNow()) togglePlay(); }
     else if (cmd === 'pause') commandPause();
@@ -838,7 +902,14 @@ function setMediaMetadata(s) {
    memulainya. */
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
-  const on = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
+  const on = (a, fn) => {
+    try {
+      navigator.mediaSession.setActionHandler(a, (...args) => {
+        Diag.add('mediasession', a + ' | hidden=' + document.hidden + ' float=' + !!Player.floatOn);
+        return fn(...args);
+      });
+    } catch (e) { Diag.add('mediasession-gagal', a); }
+  };
   on('previoustrack', prevTrack);
   on('nexttrack', () => nextTrack(false));
   on('play', () => { if (!isPlayingNow()) togglePlay(); });
@@ -1741,6 +1812,7 @@ async function route() {
       await viewBrowse(view, parts[1], parts[0], params.get('params'));
     }
     else if (parts[0] === 'localpl') { setActiveNav('library'); viewLocalPlaylist(view, parts[1]); }
+    else if (parts[0] === 'log') { setActiveNav(''); viewDiag(view); }
     else if (parts[0] === 'song' && parts[1]) { setActiveNav('home'); await viewHome(view); openSharedSong(parts[1]); }
     else {
       view.innerHTML = emptyHTML('Page not found', 'That link does not exist or the page was removed.', { label: 'Go home', go: '#/home', ic: 'i-search' });
@@ -2123,6 +2195,49 @@ function viewStats(view) {
       ${topSongs.map((r, i) => trackRowHTML({ videoId: r.videoId, title: r.title, subtitle: `${r.artist} · ${r.plays} plays · ${Math.round(r.secs / 60)} min`, thumbnail: r.thumbnail, tn: i + 1 })).join('')}</div></div>` : ''}
     ${!rows.length ? emptyHTML('No stats yet', 'Play some music — totals build up as you listen.', { label: 'Browse home', go: '#/home', ic: 'i-chart' }) : ''}`;
   bindItems(view);
+}
+
+/* ---- Catatan pemeriksaan ---- */
+/* Halaman tersembunyi di #/log. Tidak ada tautan menuju ke sini dari mana
+   pun, karena isinya hanya berguna saat sedang memeriksa perilaku di sebuah
+   perangkat. Isinya tetap di perangkat sampai Anda sendiri menyalinnya. */
+function viewDiag(view) {
+  view.innerHTML = `<div class="hello-row"><div>
+      <div class="greeting">Perangkat ini saja</div>
+      <h1 class="page-title">Catatan pemeriksaan</h1>
+    </div></div>
+    <div class="lib-actions">
+      <button class="pill-btn primary" id="diag-copy">${icon('i-save')}<span>Salin catatan</span></button>
+      <button class="pill-btn" id="diag-refresh">${icon('i-repeat')}<span>Muat ulang</span></button>
+      <button class="pill-btn" id="diag-clear">${icon('i-trash')}<span>Kosongkan</span></button>
+    </div>
+    <pre id="diag-text"></pre>`;
+  const pre = $('#diag-text');
+  const gambar = () => { pre.textContent = Diag.text(); };
+  gambar();
+  $('#diag-refresh').addEventListener('click', gambar);
+  $('#diag-clear').addEventListener('click', () => {
+    Diag.rows.length = 0;
+    Diag.simpan();
+    gambar();
+    toast('Catatan dikosongkan');
+  });
+  $('#diag-copy').addEventListener('click', async () => {
+    const teks = Diag.text();
+    try {
+      await navigator.clipboard.writeText(teks);
+      toast('Catatan disalin');
+    } catch {
+      // clipboard sering ditolak di halaman yang bukan https atau tanpa izin
+      pre.focus();
+      const r = document.createRange();
+      r.selectNodeContents(pre);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      toast('Tidak bisa menyalin otomatis, teksnya sudah disorot');
+    }
+  });
 }
 
 /* ---- Library ---- */
@@ -3439,7 +3554,11 @@ let _pipSelf = false;
 function bindPipVideo(video) {
   if (!video || video._pipBound) return;
   video._pipBound = true;
+  for (const nama of ['enterpictureinpicture', 'leavepictureinpicture', 'ended', 'stalled', 'suspend', 'error', 'play', 'playing', 'waiting']) {
+    video.addEventListener(nama, () => Diag.add('video', nama + ' | hidden=' + document.hidden));
+  }
   video.addEventListener('pause', () => {
+    Diag.add('video', 'pause | sendiri=' + _pipSelf + ' ingin=' + !!Player.wantPlaying + ' hidden=' + document.hidden);
     if (_pipSelf || !Player.floatOn) return;
     // Bukan perintah pengguna, melainkan browser yang menidurkan videonya.
     // Hidupkan lagi selama musiknya memang sedang ingin berjalan.
@@ -3535,6 +3654,7 @@ async function openFloatWidget() {
   const el = $('#float-widget');
   const docOk = await openPipWidget();
   const sysOk = docOk ? false : await startSystemPip();
+  Diag.add('widget', docOk ? 'jendela dokumen' : (sysOk ? 'picture in picture kanvas' : 'bilah dalam halaman'));
   if (docOk) {
     el.classList.add('hidden');
     toast('Widget terpisah, tetap di atas jendela lain');
@@ -3654,6 +3774,7 @@ function resumeIfBackgroundPause(state) {
 }
 
 document.addEventListener('visibilitychange', () => {
+  Diag.add('keterlihatan', document.hidden ? 'tersembunyi' : 'terlihat');
   if (document.hidden) {
     bgResumeTries = 0;
     return;
