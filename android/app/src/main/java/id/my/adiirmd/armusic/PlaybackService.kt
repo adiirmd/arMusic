@@ -47,15 +47,15 @@ class PlaybackService : Service() {
         running = true
         session = MediaSessionCompat(this, "ARMusic").apply {
             /*
-             * Perintahnya harus menyebut maunya apa, bukan "balik keadaan".
+             * A command has to say what it wants, not "flip whatever is on".
              *
-             * Dulu onPlay, onPause dan onStop sama-sama mengirim "toggle".
-             * Android memanggil onPause dan onStop bukan hanya saat pengguna
-             * menekan tombol: aplikasi lain merebut fokus audio, headset
-             * dicabut, perangkat Bluetooth putus, atau sistem meminta semua
-             * sesi berhenti. Kalau saat itu musiknya memang sudah dijeda,
-             * "toggle" justru menyalakannya. Itulah musik yang tiba-tiba
-             * berbunyi sendiri padahal tidak ada tombol yang ditekan.
+             * Once, onPlay, onPause and onStop all sent "toggle". Android calls
+             * onPause and onStop for more than someone pressing a button:
+             * another app takes audio focus, headphones are unplugged, a
+             * Bluetooth device drops, or the system asks every session to stop.
+             * If the music happened to be paused at that moment, "toggle"
+             * started it instead. That was the music coming on by itself with
+             * nobody having touched anything.
              */
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() = PlaybackCommands.send("play")
@@ -93,9 +93,9 @@ class PlaybackService : Service() {
         title = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() }
             ?: getString(R.string.app_name)
         artist = intent?.getStringExtra(EXTRA_ARTIST).orEmpty()
-        // Kalau sistem menghidupkan ulang service tanpa data, pertahankan
-        // keadaan terakhir. Dulu bawaannya true, jadi notifikasinya mengaku
-        // sedang memutar padahal musiknya dijeda.
+        // If the system restarts the service with nothing to go on, keep the
+        // last known state. The default used to be true, so the notification
+        // claimed to be playing while the music sat paused.
         playing = intent?.getBooleanExtra(EXTRA_PLAYING, playing) ?: playing
         durationMs = (intent?.getIntExtra(EXTRA_DURATION, 0) ?: 0) * 1000L
 
@@ -197,8 +197,8 @@ class PlaybackService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .addAction(action(R.drawable.ic_note_prev, Wording.of(this, "previous"), ACTION_PREV))
             .addAction(
-                // aksinya mengikuti ikon yang digambar, jadi notifikasi yang
-                // sempat basi pun tidak bisa menyalakan musik yang sudah dijeda
+                // the action follows the icon on screen, so even a stale
+                // notification cannot start music that is already paused
                 if (playing) action(R.drawable.ic_note_pause, Wording.of(this, "pause"), ACTION_PAUSE)
                 else action(R.drawable.ic_note_play, Wording.of(this, "play"), ACTION_PLAY)
             )

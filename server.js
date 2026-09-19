@@ -557,42 +557,41 @@ app.get('/api/download-progress', async (req, res) => {
   }
 });
 
-/* ---------------- kenapa audionya tidak diambil sendiri ----------------
+/* ---------------- why the audio is not fetched here ----------------
 
-   Pernah diukur, dan hasilnya menutup pertanyaannya. Alat ukurnya sudah
-   dihapus, catatannya ditinggal supaya tidak ada yang memulai lagi dari nol.
+   This was measured once and the measurement closed the question. The probe
+   that did it is gone; the note stays so nobody starts over from nothing.
 
-   Latar belakangnya, di ponsel yang browsernya masih mode biasa bingkai
-   YouTube menolak berbunyi begitu halamannya ditinggal, dan itu sudah
-   terbukti tidak bisa ditawar dari sisi halaman, termasuk lewat tombol
-   notifikasi yang membawa izin interaksi pengguna. Satu satunya jalan yang
-   tersisa adalah tidak lagi menjadikan bingkai itu sumber suara, melainkan
-   memutar audionya lewat elemen audio milik halaman sendiri, yang oleh
-   browser diperlakukan seperti situs musik mana pun dan boleh jalan di latar
-   belakang. Itu menuntut server ini sanggup menemukan alamat aliran audio
-   sendiri.
+   The background: on a phone whose browser is still in its normal mode, the
+   YouTube frame refuses to make a sound the moment its page is left, and that
+   refusal held even against a press on the notification, which carries a
+   person's own interaction with it. The only way left was to stop letting that
+   frame be the source of sound and play the audio through a media element of
+   the page's own, which browsers treat like any other music site and allow to
+   keep going in the background. That needs this server to find an audio stream
+   by itself.
 
-   Enam jenis klien diuji langsung dari server yang sebenarnya, dan semuanya
-   ditolak dengan tiga macam tembok:
+   Six client types were tried from the real server and every one was turned
+   away, behind three different walls:
 
-     ANDROID, IOS            Precondition check failed. Permintaannya menuntut
-                             bukti keaslian perangkat yang hanya bisa dibuat
-                             aplikasi resminya.
-     ANDROID_VR, MWEB, WEB   Diminta masuk akun untuk membuktikan bukan robot.
-                             Ini soal reputasi alamat, dan alamat pusat data
-                             seperti tempat aplikasi ini berjalan memang sudah
-                             ditandai.
-     TVHTML5, WEB_EMBEDDED   Klien lama, sudah tidak dilayani.
+     ANDROID, IOS            Precondition check failed. The request wants proof
+                             the device is genuine, which only the official app
+                             can produce.
+     ANDROID_VR, MWEB, WEB   Asked to sign in to prove it is not a robot. That
+                             is about the reputation of the address, and a data
+                             centre address like the one this runs on is already
+                             marked.
+     TVHTML5, WEB_EMBEDDED   Old clients, no longer served.
 
-   Dua tembok pertama tidak bisa dilewati dengan memperbaiki kode. Yang satu
-   menuntut perangkat asli, yang satu lagi menuntut alamat rumahan. Andai ada
-   satu klien yang kebetulan lolos hari ini pun, jalan seperti ini berubah
-   beberapa kali setahun dan akan mati lagi.
+   Neither of the first two walls can be climbed by writing better code. One
+   wants a real device, the other wants a home address. And even if some client
+   happened to slip through today, this sort of path changes a few times a year
+   and would break again.
 
-   Jadi audionya tetap dari bingkai YouTube, dan untuk dengar sambil membuka
-   aplikasi lain di ponsel jawabannya ada dua, yaitu aplikasi Androidnya atau
-   mengaktifkan Situs desktop di browser. Keduanya sudah disebut pada spanduk
-   di beranda untuk perangkat yang membutuhkannya. */
+   So the audio still comes from the YouTube frame, and for listening while
+   another app is open the answer is either the Android app or turning on
+   Desktop site in the browser. Both are named on the banner shown to the
+   devices that need it. */
 
 /* resolve a YT Music / YouTube URL (playlist, album, artist, song) into an app route */
 app.get('/api/resolve', async (req, res) => {

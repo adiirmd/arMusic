@@ -140,14 +140,13 @@ function isPreviewing() {
   return !!(Player.pending && (!Player.current || Player.pending.videoId !== Player.current.videoId));
 }
 
-/* Pencatat kejadian untuk pemeriksaan pernah ada di sini, beserta halaman
-   tersembunyi di #/log untuk membacanya. Dipakai untuk menelusuri pemutaran di
-   latar belakang pada perangkat yang tidak bisa dicoba langsung, dan sudah
-   selesai tugasnya. Seluruhnya dicabut, termasuk halamannya.
+/* An event log used to live here, along with a hidden page at #/log to read
+   it on. It was there to trace background playback on devices that could not
+   be tried directly, and it has done its job. All of it is gone, the page
+   included.
 
-   Simpanan yang pernah ditinggalkannya di perangkat ikut dibuang sekali jalan,
-   supaya tidak ada sisa catatan yang menumpuk di perangkat orang setelah
-   fiturnya sendiri tidak ada lagi. */
+   Whatever it left behind on the device is cleared out once on load, so no
+   stale notes pile up on anyone's phone now that the feature itself is gone. */
 try { localStorage.removeItem('armusic_diag'); } catch {}
 
 
@@ -159,21 +158,21 @@ const store = {
   set(k, v) { localStorage.setItem(KEY + k, JSON.stringify(v)); },
 };
 
-/* Memindahkan simpanan lama ke awalan baru, sekali jalan.
-   Urutannya disengaja: salin dulu, pastikan hasil salinannya sama persis,
-   baru yang lama dihapus. Kalau ada satu saja yang tidak cocok, yang lama
-   ditinggalkan apa adanya. Di sini ada playlist dan favorit orang, jadi
-   lebih baik menyisakan kunci lama daripada kehilangan isinya. */
+/* Moves storage from the old prefix to the new one, once.
+   The order is deliberate: copy first, check the copy matches exactly, and
+   only then delete the old. If a single one does not match, the old is left
+   exactly where it is. People's playlists and favorites live in here, so
+   leaving a stale key behind beats losing what it holds. */
 (function migrateStore() {
   try {
-    const lama = [];
+    const oldKeys = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(OLD_KEY)) lama.push(k);
+      if (k && k.startsWith(OLD_KEY)) oldKeys.push(k);
     }
-    for (const k of lama) {
+    for (const k of oldKeys) {
       const baru = KEY + k.slice(OLD_KEY.length);
-      // yang sudah ada di awalan baru menang, jangan ditimpa yang lama
+      // what is already under the new prefix wins; never write over it with the old
       if (localStorage.getItem(baru) === null) {
         localStorage.setItem(baru, localStorage.getItem(k));
       }
@@ -346,36 +345,12 @@ function toggleQuality() {
   setTimeout(applyPlaybackQuality, 1600);
 }
 
-/* ================= mesin suara ini punya dua ================= */
-/* Sampai sekarang yang berbunyi selalu bingkai YouTube. Itu bekerja di mana
- * saja kecuali satu tempat: browser ponsel dalam mode biasa, yang menolak
- * membunyikannya begitu halaman ditinggal. Semua jalan untuk membujuk bingkai
- * itu sudah dicoba dan gagal, catatannya ada di bagian bawah berkas ini.
- *
- * Maka untuk perangkat sentuh, suaranya dipindahkan ke elemen audio milik
- * halaman sendiri. Audio milik halaman diperlakukan browser seperti situs
- * musik mana pun: boleh jalan di latar belakang, notifikasinya asli, dan
- * tombolnya berfungsi.
- *
- * Yang membuatnya bisa dipakai tanpa membuat orang menunggu adalah urutannya.
- * Lagunya tetap mulai dari bingkai YouTube seperti biasa, jadi tidak ada jeda
- * sama sekali saat ditekan. Alamat berkas audionya dicari diam diam di
- * belakang layar, dan begitu siap, pemutaran dioper ke elemen audio pada
- * detik yang sama lalu bingkainya dijeda. Kalau pencariannya gagal atau
- * kelamaan, tidak ada yang dioper dan keadaannya persis seperti sebelumnya.
- * Jadi yang paling buruk yang bisa terjadi adalah tidak ada perubahan.
- *
- * PB adalah muka depan yang menutupi dua mesin itu. Bentuknya sengaja meniru
- * pemutar YouTube, termasuk angka keadaannya, supaya seluruh sisa aplikasi,
- * dari bilah kemajuan sampai lirik dan SponsorBlock, tidak perlu tahu mesin
- * mana yang sedang bunyi. */
 const PB = {
-  /* Pembungkus tipis di atas pemutar YouTube. Bentuknya meniru pemutar itu,
-     termasuk angka keadaannya, jadi sisa aplikasi memanggil satu tempat saja.
-     Sempat ada mesin kedua di sini, elemen audio milik halaman sendiri, untuk
-     mengejar pemutaran di latar belakang. Itu sudah dicabut, alasannya dicatat
-     di bagian bawah berkas ini. */
-  get pakaiAudio() { return false; },
+  /* A thin wrapper over the YouTube player. It mirrors that player's shape,
+     state numbers included, so the rest of the app only ever calls one place.
+     There was briefly a second engine here, a media element of the page's own,
+     chasing background playback. It was taken out; the reasons are written up
+     near the bottom of this file. */
   state() {
     try { return Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch { return -1; }
   },
@@ -436,7 +411,7 @@ window.onYouTubeIframeAPIReady = () => {
         if (e.data === YT.PlayerState.BUFFERING) applyPlaybackQuality();
         if (e.data === YT.PlayerState.PLAYING) {
           Player.wantPlaying = true;
-          // setelah bingkai YouTube memasang sesinya sendiri, bukan sebelum
+          // after the YouTube frame has set up its own session, not before
           setTimeout(assertMediaSession, 900);
         }
         resumeIfBackgroundPause(e.data);
@@ -559,8 +534,9 @@ function restoreQueue() {
   };
   tryCue();
   setMediaMetadata(s);
-  // 'paused', bukan dibiarkan 'none': tanpa ini sistem menganggap tidak ada
-  // yang bisa dikendalikan dan jendela picture-in-picture muncul tanpa tombol
+  // 'paused' rather than left at 'none'. Without it the system decides there
+  // is nothing to control, and the picture in picture window opens with no
+  // play button on it at all
   try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; } catch {}
   renderNowPlaying();
   renderQueue();
@@ -600,9 +576,6 @@ function startCurrent() {
   Player.pending = null;
   const s = Player.current;
   if (!s) return;
-  // Lagu sebelumnya mungkin sedang dipegang elemen audio. Dilepas dulu, dan
-  // tanpa diteruskan ke bingkai, karena bingkainya sebentar lagi memuat lagu
-  // yang baru.
   const loadId = ++Player.loadId;
 
   const tryPlay = () => {
@@ -646,12 +619,12 @@ function startCurrent() {
   }
 }
 
-/* ---------- penilaian kandidat radio ----------
+/* ---------- scoring the radio candidates ----------
  *
- * Urutan dari YouTube sudah membawa informasi kemiripan, jadi yang dilakukan
- * di sini menggeser, bukan mengurutkan ulang dari nol. Semua pembobotan
- * berbasis riwayat dikerjakan di perangkat; tidak ada data pendengar yang
- * dikirim ke server.
+ * The order YouTube sends already carries a sense of what is similar, so what
+ * happens here nudges rather than sorting from scratch. Every weighting based
+ * on listening history is worked out on the device; nothing about what someone
+ * listens to is sent to the server.
  */
 function artistKeys(s) {
   const ids = ((s && s.artists) || []).map((a) => a && a.browseId).filter(Boolean);
@@ -673,11 +646,11 @@ function artistPlayCounts() {
   return by;
 }
 
-const RADIO_RUN_LIMIT = 3; // lagu berturut turut dari artis yang sama
+const RADIO_RUN_LIMIT = 3; // songs in a row from the same artist
 
-/* Menyebar daftar yang sudah diurut supaya tidak lebih dari RADIO_RUN_LIMIT
-   lagu berturut turut dari artis yang sama. Tanpa ini, bobot artis sama yang
-   besar membuat radio terasa seperti memutar satu album. */
+/* Spreads an already sorted list so no more than RADIO_RUN_LIMIT songs in a
+   row come from the same artist. Without this, the weight given to the same
+   artist makes the radio feel like one album on repeat. */
 function spreadArtists(list) {
   const out = [];
   const tunda = [];
@@ -689,7 +662,7 @@ function spreadArtists(list) {
     if (a && a === last && run >= RADIO_RUN_LIMIT) { tunda.push(c); continue; }
     out.push(c);
     if (a && a === last) run++; else { last = a; run = 1; }
-    // begitu artisnya berganti, yang tadi ditunda boleh masuk lagi
+    // once the artist changes, whatever was held back can come in again
     for (let i = 0; i < tunda.length; i++) {
       const t = tunda[i];
       const ta = nama(t);
@@ -731,12 +704,12 @@ function rankRadio(list, seed, existing) {
   return spreadArtists(dinilai);
 }
 
-/* Menyambung antrean yang hampir habis, tanpa membongkarnya.
+/* Extends a queue that is running low, without taking it apart.
  *
- * Berbeda dari fetchQueue yang menyusun ulang total dan mereset Player.index,
- * fungsi ini hanya menambahkan di belakang. Dipakai untuk dua hal sekaligus:
- * radio yang batchnya habis, dan album atau playlist yang lagunya sudah habis
- * tetapi pemutaran harus lanjut ke lagu yang senada. */
+ * Unlike fetchQueue, which rebuilds the whole thing and resets Player.index,
+ * this only adds to the end. It covers two cases at once: a radio that has run
+ * through its batch, and an album or playlist that has run out of songs while
+ * playback should carry on with something in the same vein. */
 async function extendQueue(seed) {
   if (!seed || !seed.videoId || Player._extending) return;
   Player._extending = true;
@@ -753,8 +726,8 @@ async function extendQueue(seed) {
   finally { Player._extending = false; }
 }
 
-/* Dipanggil tiap kali lagu berganti. Menyambung lebih awal, bukan menunggu
-   lagu terakhir selesai, supaya tidak ada jeda saat pergantian. */
+/* Called on every change of song. Extends early rather than waiting for the
+   last one to finish, so nothing stalls at the hand over. */
 function maybeExtendQueue() {
   if (Player.cued || Player.repeat === 1) return;
   const sisa = Player.queue.length - 1 - Player.index;
@@ -768,12 +741,13 @@ async function fetchQueue(song) {
   const loadId = Player.loadId;
   Player._queueFetching = true;
   try {
-    // playlistId lagunya sengaja tidak dikirim. Lagu yang berasal dari album,
-    // playlist, atau chart membawa ID playlist asalnya, dan mengirimkannya
-    // membuat server memakai playlist itu alih alih radio. Isinya jadi sisa
-    // playlist asal, yang kalau campuran akan melenceng jauh genrenya.
-    // Tanpa playlistId, server memakai RDAMVM<videoId>, radio YouTube Music
-    // untuk lagu tersebut. Memutar album secara sengaja tidak lewat sini.
+    // The song's playlistId is deliberately left out. A song that came from
+    // an album, a playlist or a chart carries the id of where it came from,
+    // and sending that makes the server use that playlist instead of the
+    // radio. What fills the queue is then the rest of that playlist, which on
+    // a mixed one drifts a long way from the genre. Without a playlistId the
+    // server falls back to RDAMVM<videoId>, the YouTube Music radio for that
+    // song. Playing an album on purpose does not come through here.
     const d = await api(`/api/next?videoId=${encodeURIComponent(song.videoId)}`);
     if (Player.cued || loadId !== Player.loadId) return;
     if (!vid || !Player.current || Player.current.videoId !== vid) return;
@@ -796,10 +770,10 @@ async function fetchQueue(song) {
 
 /* ---------- shuffle ----------
  *
- * Dulu lagu berikutnya diundi seragam dari seluruh antrean, termasuk lagu yang
- * sudah lewat, tanpa ingatan. Akibatnya satu lagu bisa muncul berkali kali
- * sementara yang lain tidak pernah kebagian. Sekarang seperti mengocok kartu:
- * setiap lagu keluar sekali dulu sebelum ada yang terulang.
+ * The next song used to be drawn evenly from the whole queue, songs already
+ * played included, with no memory of what had come up. One song could turn up
+ * again and again while another never got a turn. Now it works like a shuffled
+ * deck: every song comes out once before any of them repeats.
  */
 function resetShuffleBag() {
   Player.shuffleBag = null;
@@ -809,13 +783,13 @@ function resetShuffleBag() {
 function takeFromShuffleBag() {
   const n = Player.queue.length;
   if (!n) return -1;
-  // Antrean berubah di belasan tempat, jadi tumpukannya yang memeriksa diri
-  // sendiri. Lebih aman daripada mengandalkan setiap pemanggil ingat mengocok
-  // ulang, dan lagu yang baru masuk ikut kebagian.
+  // The queue changes in a dozen places, so the deck checks itself. Safer than
+  // trusting every caller to remember to reshuffle, and it means songs that
+  // have just arrived get their turn too.
   if (Player.shuffleBagFor !== n) resetShuffleBag();
-  // Sengaja hanya memeriksa "belum pernah dibuat", bukan "sudah kosong".
-  // Tumpukan yang habis dibiarkan kosong supaya pemutaran bisa berhenti saat
-  // repeat mati; yang mengisinya ulang hanya repeat all, lewat resetShuffleBag.
+  // Deliberately checks only for "never built", not for "empty". A spent deck
+  // is left empty so playback can come to a stop when repeat is off; the only
+  // thing that refills it is repeat all, through resetShuffleBag.
   if (!Array.isArray(Player.shuffleBag)) {
     const idx = [];
     for (let i = 0; i < n; i++) if (i !== Player.index) idx.push(i);
@@ -826,7 +800,7 @@ function takeFromShuffleBag() {
     Player.shuffleBag = idx;
     Player.shuffleBagFor = n;
   }
-  // buang indeks yang sudah tidak berlaku, misalnya karena antrean menyusut
+  // drop positions that no longer hold, say because the queue got shorter
   while (Player.shuffleBag.length) {
     const i = Player.shuffleBag.shift();
     if (i < Player.queue.length && i !== Player.index) return i;
@@ -844,13 +818,13 @@ function nextTrack(auto) {
   if (!Player.queue.length) return;
   let ni;
   if (Player.shuffle) {
-    // antrean yang ditambahkan pendengar tetap didahulukan, berurutan
+    // songs the listener queued keep their place at the front, in order
     const userNext = Player.queue.findIndex((q, i) => i > Player.index && q._user);
     if (userNext >= 0) ni = userNext;
     else {
       ni = takeFromShuffleBag();
       if (ni < 0) {
-        // semua lagu sudah kebagian sekali
+        // every song has had its turn
         if (Player.repeat === 1) { resetShuffleBag(); ni = takeFromShuffleBag(); }
         if (ni < 0) return;
       }
@@ -906,19 +880,19 @@ window.ARMusicCloseOverlay = function () {
   return false;
 };
 /* Transport buttons on the notification land here. */
-/* Menjeda apa adanya, tidak lewat togglePlay. Saat lagunya sedang memuat,
-   getPlayerState belum melaporkan PLAYING, dan togglePlay akan membaca itu
-   sebagai "sedang berhenti" lalu justru memutarnya. */
+/* Pauses plainly, not through togglePlay. While a song is still loading,
+   getPlayerState has not reported PLAYING yet, and togglePlay would read that
+   as "stopped" and start it instead. */
 function commandPause() {
   if (Player.cued || !Player.yt || !Player.ready) return;
   Player.wantPlaying = false;
   try { PB.pause(); } catch {}
 }
 
-/* Perintah dari notifikasi dan sesi media di aplikasi Android.
-   'play' dan 'pause' menyebut maunya apa, jadi perintah yang datang saat
-   keadaannya sudah sesuai tidak melakukan apa-apa. 'toggle' tetap diterima
-   demi aplikasi versi lama yang masih mengirimnya. */
+/* Commands from the notification and the media session in the Android app.
+   'play' and 'pause' say what they want, so a command that arrives when things
+   are already that way does nothing. 'toggle' is still accepted for older
+   builds of the app that keep sending it. */
 window.ARMusicCommand = function (cmd) {
   try {
     if (cmd === 'play') { if (!isPlayingNow()) togglePlay(); }
@@ -928,9 +902,9 @@ window.ARMusicCommand = function (cmd) {
     else if (cmd === 'prev') prevTrack();
   } catch {}
 };
-/* Judul, artis dan sampul untuk notifikasi sistem, layar kunci, dan jendela
-   picture-in-picture. Dipanggil juga saat antrean baru dipulihkan, supaya
-   lagunya sudah dikenali sistem sebelum sempat diputar. */
+/* Title, artist and artwork for the system notification, the lock screen and
+   the picture in picture window. Called when a queue is restored too, so the
+   system already knows the song before anyone presses play. */
 function setMediaMetadata(s) {
   if (!s || !('mediaSession' in navigator)) return;
   try {
@@ -941,13 +915,13 @@ function setMediaMetadata(s) {
   } catch {}
 }
 
-/* Penangan tombol dipasang sekali saat halaman dimuat, bukan setiap kali lagu
-   diputar. Dulu dipasang di dalam playSong, jadi sebelum ada lagu yang
-   benar-benar diputar, sistem tidak punya tombol apa pun untuk ditampilkan
-   dan jendela picture-in-picture muncul tanpa tombol putar.
-   Putar dan jeda lewat togglePlay, bukan langsung ke pemutar, karena lagu
-   yang baru dipulihkan belum dimuat dan hanya togglePlay yang tahu cara
-   memulainya. */
+/* The button handlers go on once when the page loads, not every time a song
+   plays. They used to be set inside playSong, so until something had actually
+   been played the system had no buttons to show, and the picture in picture
+   window came up without a play button on it.
+   Play and pause go through togglePlay rather than straight to the player,
+   because a song that has just been restored is not loaded yet and only
+   togglePlay knows how to start it. */
 function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
   const on = (a, fn) => {
@@ -960,7 +934,7 @@ function setupMediaSession() {
   on('play', () => { if (!isPlayingNow()) togglePlay(); });
   on('pause', () => commandPause());
   on('stop', () => commandPause());
-  // tanpa ini layar kunci tidak menampilkan penggeser dan tombol lompat
+  // without these the lock screen shows no scrubber and no skip buttons
   on('seekbackward', (d) => seekRelative(-(d && d.seekOffset ? d.seekOffset : 10)));
   on('seekforward', (d) => seekRelative(d && d.seekOffset ? d.seekOffset : 10));
   on('seekto', (d) => {
@@ -973,27 +947,27 @@ function isPlayingNow() {
   try { return PB.state() === YT.PlayerState.PLAYING; } catch { return false; }
 }
 
-/* ---------- merebut kembali kepemilikan notifikasi ----------
+/* ---------- taking the notification back ----------
  *
- * Notifikasinya sudah muncul, judul dan sampulnya benar, tetapi tombolnya
- * tidak sampai ke sini. Petunjuknya ada pada ikon yang ditampilkan: ikon jeda,
- * artinya sistem menganggap ada yang sedang berjalan, padahal kita sudah
- * menyetel keadaannya menjadi terjeda. Berarti yang dibaca sistem bukan sesi
- * media milik halaman ini.
+ * The notification was showing up with the right title and artwork, but its
+ * buttons never reached this code. The giveaway was the icon on it: a pause
+ * icon, meaning the system thought something was running, while we had already
+ * set the state to paused. So what the system was reading was not this page's
+ * media session.
  *
- * Sebabnya, satu halaman bisa punya lebih dari satu sesi media. Halaman ini
- * punya satu, dan bingkai YouTube di dalamnya memasang sesinya sendiri.
- * Chrome hanya meneruskan tombol ke satu di antaranya, yaitu yang paling
- * terakhir memasang penangan dan metadatanya. Penangan kita dipasang sekali
- * saat halaman dimuat, jauh sebelum ada lagu diputar, sedangkan bingkai
- * YouTube memasang miliknya tepat ketika mulai memutar. Jadi kita selalu
- * kalah baru, dan tombolnya diteruskan ke pemutar di dalam bingkai yang
- * memang sedang tidak boleh berbunyi.
+ * The reason is that one page can hold more than one media session. This page
+ * has its own, and the YouTube frame inside it sets up another. Chrome passes
+ * the buttons to only one of them, whichever registered its handlers and
+ * metadata most recently. Ours go on once when the page loads, long before
+ * anything is played, while the YouTube frame sets its own up exactly when
+ * playback starts. So ours is always the older one, and the buttons went to
+ * the player inside the frame, which is the very thing that is not allowed to
+ * make a sound.
  *
- * Maka penangan dan metadatanya dipasang ulang pada dua saat yang menentukan:
- * sesaat setelah lagu benar benar berjalan, dan tepat ketika tabnya
- * ditinggal. Yang terakhir itu yang paling penting, karena itulah kesempatan
- * terakhir menjadi yang paling baru sebelum notifikasinya dipakai orang.
+ * So the handlers and metadata are set again at the two moments that decide
+ * it: shortly after a song is really running, and right as the tab is left.
+ * The second is the important one, because it is the last chance to be the
+ * most recent before anyone reaches for the notification.
  */
 function assertMediaSession() {
   if (!('mediaSession' in navigator)) return;
@@ -1004,45 +978,44 @@ function assertMediaSession() {
   } catch {}
 }
 
-/* ---------- menahan sesi media, dicoba lalu dicabut ----------
+/* ---------- holding a media session, tried and taken out again ----------
  *
- * Bagian ini pernah ada dan sengaja dihapus. Catatannya ditinggal supaya
- * percobaan yang sama tidak diulang oleh siapa pun, termasuk saya sendiri.
+ * This existed once and was removed on purpose. The note stays so nobody runs
+ * the same experiment again, myself included.
  *
- * Alasannya masuk akal waktu itu. Di ponsel mode biasa tidak ada apa pun yang
- * muncul di bilah notifikasi, dan sebabnya jelas: Chrome hanya memunculkan
- * notifikasi media untuk media yang benar benar berjalan di halaman ini,
- * sedangkan satu satunya yang berbunyi ada di dalam bingkai YouTube milik
- * origin lain. Begitu bingkai itu diam, tidak ada yang bisa ditempeli
- * notifikasi. Metadata MediaSession tidak menolong karena metadata hanya
- * mengisi notifikasi yang sudah ada, bukan memunculkannya.
+ * It made sense at the time. On a phone in normal mode nothing appeared in the
+ * notification bar at all, and the reason was plain: Chrome only raises a media
+ * notification for media actually running in this page, while the only thing
+ * making a sound sits inside the YouTube frame, which belongs to another
+ * origin. Once that frame goes quiet there is nothing left to attach a
+ * notification to. MediaSession metadata does not help, because metadata only
+ * fills a notification that already exists rather than bringing one into being.
  *
- * Maka halaman ini sempat memegang medianya sendiri, potongan senyap tiga
- * puluh detik yang diputar berulang, supaya notifikasinya terbentuk atas nama
- * halaman ini dan bertahan meski bingkai YouTube berhenti.
+ * So this page briefly held media of its own, thirty seconds of silence played
+ * on a loop, so the notification would be raised in this page's name and
+ * survive the YouTube frame stopping.
  *
- * Bagian itu berhasil, dan justru hasilnya yang menutup persoalannya.
- * Notifikasinya muncul lengkap dengan judul, artis, dan sampul yang benar,
- * dan setelah penangan dipasang ulang (lihat assertMediaSession) tombolnya
- * pun sampai ke sini: menekan lagu berikutnya benar benar mengganti lagu,
- * terlihat dari judul di notifikasi yang ikut berubah. Tetapi suaranya tetap
- * tidak ada. Itu percobaan yang paling menentukan, karena tombol notifikasi
- * membawa izin interaksi dari pengguna, sesuatu yang tidak dimiliki percobaan
- * otomatis mana pun. Permintaan putar dengan izin itu pun ditolak.
+ * That part worked, and the result is exactly what closed the question. The
+ * notification appeared with the right title, artist and artwork, and once the
+ * handlers were set again (see assertMediaSession) its buttons did reach this
+ * code: pressing next really did change the song, visible in the title on the
+ * notification changing with it. But there was still no sound. That is the
+ * decisive test, because a press on a notification carries the user's own
+ * interaction, which no automatic attempt has. Even a request to play with
+ * that behind it was refused.
  *
- * Kesimpulannya: bingkai YouTube menolak berbunyi selama halamannya
- * ditinggal, dan penolakan itu tidak bisa ditawar dari sisi halaman.
+ * The conclusion: the YouTube frame refuses to make a sound while its page is
+ * left, and that refusal cannot be argued with from the page's side.
  *
- * Yang tertinggal malah lebih buruk daripada diam. Notifikasinya menyala
- * seolah musiknya jalan padahal tidak ada suara, menekan jeda tidak mengubah
- * tampilannya karena yang dianggap berjalan adalah potongan senyap tadi, dan
- * menekan lagu berikutnya diam diam mengganti antrean orang tanpa terdengar
- * apa apa. Notifikasi yang berbohong lebih menyesatkan daripada tidak ada
- * notifikasi sama sekali, jadi dicabut.
+ * What was left behind was worse than silence. The notification lit up as if
+ * music were playing when there was none, pressing pause changed nothing on it
+ * because what counted as running was that loop of silence, and pressing next
+ * quietly rearranged someone's queue with nothing to hear. A notification that
+ * lies is more misleading than no notification at all, so it came out.
  *
- * Yang tetap dipakai dari percobaan ini cuma assertMediaSession, karena di
- * perangkat yang notifikasinya memang terbentuk sendiri, memasang ulang
- * penangan tetap membuat tombolnya diteruskan ke sini.
+ * The one piece kept from the experiment is assertMediaSession, because on
+ * devices where the notification does appear on its own, setting the handlers
+ * again is still what sends the buttons here.
  */
 
 /* Keep the OS notification and lock screen honest about what is playing. */
@@ -1325,10 +1298,10 @@ function updateLyricHighlight(cur) {
   syncFloatLyric(line);
 }
 
-/* Baris artis berlaku sebagai tautan hanya kalau ada yang bisa dituju:
-   browseId artisnya, atau setidaknya namanya untuk dicarikan. Perannya
-   dipasang sekalian, supaya yang terlihat bisa diklik juga bisa dicapai
-   dengan keyboard, bukan hanya dengan tetikus. */
+/* The artist line acts as a link only when there is somewhere to go: the
+   artist's browseId, or at least a name to search for. The role is set along
+   with it, so anything that looks clickable can be reached with a keyboard and
+   not only with a mouse. */
 function setArtistLink(el, on) {
   if (!el) return;
   el.classList.toggle('linkish', on);
@@ -1564,10 +1537,10 @@ function downloadFilename(song) {
   return `${raw.slice(0, 80) || 'track'}.mp3`;
 }
 function clickDownload(href, name) {
-  /* Di dalam aplikasi Android, serahkan ke sisi Android. WebView tidak
-     mengunduh apa pun sendiri, dan tanpa jalur ini tombol unduhnya benar benar
-     tidak melakukan apa apa. Nama berkasnya ikut dikirim supaya yang tersimpan
-     bernama judul lagunya, bukan nama acak dari server pengonversi. */
+  /* Inside the Android app, hand it to the Android side. A WebView downloads
+     nothing by itself, and without this route the download button really does
+     nothing at all. The filename goes along with it so what gets saved is named
+     after the song rather than whatever the converter called it. */
   try {
     if (window.ARMusicNative && typeof ARMusicNative.download === 'function') {
       ARMusicNative.download(String(href), String(name || ''));
@@ -1578,13 +1551,13 @@ function clickDownload(href, name) {
   const aEl = document.createElement('a');
   aEl.href = href;
   aEl.download = name || '';
-  /* Sengaja tanpa target _blank. Membuka jendela baru berarti meminta izin
-     yang sudah kedaluwarsa: konversinya memakan belasan detik, dan setelah
-     penantian selama itu klik ini tidak lagi dianggap berasal dari sentuhan
-     orang, jadi browser ponsel memblokirnya sebagai jendela sembulan. Itulah
-     sebabnya unduhan di ponsel berhenti tanpa kabar setelah konversi selesai.
-     Berkasnya sendiri dikirim sebagai lampiran, jadi halaman ini tidak akan
-     ikut berpindah ke mana mana. */
+  /* Deliberately without target _blank. Opening a new window asks for
+     permission that has already run out: the conversion takes a good fifteen
+     seconds, and after a wait like that this click no longer counts as coming
+     from a person's touch, so a phone browser blocks it as a popup. That is
+     why downloads on a phone stopped with no word once the conversion
+     finished. The file itself is served as an attachment, so this page does
+     not go wandering off anywhere. */
   aEl.rel = 'noopener noreferrer';
   document.body.appendChild(aEl);
   aEl.click();
@@ -1616,11 +1589,10 @@ async function downloadSong(song) {
     if (!url) throw new Error('timeout');
     toast(tr('toast.downloading', { title: song.title }));
     const name = downloadFilename(song);
-    /* Dulu berkasnya diambil dulu jadi satu kesatuan supaya bisa disimpan
-       dengan nama yang benar. Server pengonversinya menolak permintaan lintas
-       asal, jadi langkah itu tidak pernah sekali pun berhasil dan selalu
-       jatuh ke cadangan di bawahnya. Sekarang langsung saja, tanpa permintaan
-       yang sudah dipastikan gagal. */
+    /* The file used to be fetched whole first so it could be saved under the
+       right name. The converter's server refuses cross origin requests, so that
+       step never once succeeded and always fell through to the path below.
+       Straight there now, without a request already known to fail. */
     clickDownload(url, name);
     toast(tr('toast.downloadStarted'));
   } catch (e) {
@@ -2331,9 +2303,9 @@ function viewStats(view) {
 /* ---- Library ---- */
 function viewLibrary(view, tab) {
   const tabs = [['playlists', tr('lib.playlists')], ['favorites', tr('lib.favorites')], ['saved', tr('lib.saved')], ['history', tr('lib.historyTab')], ['stats', tr('lib.statsTab')]];
-  // location.replace, bukan location.hash: pengalihan ini tidak boleh
-  // meninggalkan langkah riwayatnya sendiri, atau tombol back akan kembali
-  // ke sini lalu dialihkan maju lagi, dan terlihat seperti tidak berfungsi
+  // location.replace, not location.hash: this redirect must not leave a step
+  // of its own in history, or the back button lands here and gets pushed
+  // forward again, which looks like a button that does not work
   if (tab === 'stats') { location.replace('#/stats'); return; }
   let body = '';
   if (tab === 'favorites') {
@@ -2489,9 +2461,8 @@ function restoreLibrary() {
     reader.onload = () => {
       try {
         const d = JSON.parse(reader.result);
-        // Dikenali dari isinya, bukan dari nama aplikasi yang tertulis di
-        // dalamnya. Berkas cadangan lama tetap bisa dipulihkan, dan tidak ada
-        // nama aplikasi mana pun yang perlu disebut di sini.
+        // Recognised by what is inside it, not by the app name written in it.
+        // Older backup files still restore, and no app name needs naming here.
         const hasLib = !!d && (Array.isArray(d.favorites) || Array.isArray(d.playlists)
           || Array.isArray(d.saved) || Array.isArray(d.history));
         if (!hasLib) throw new Error('Not an AR Music backup');
@@ -3042,22 +3013,22 @@ $('#mini-play').addEventListener('click', (e) => { e.stopPropagation(); togglePl
 $('#mini-next').addEventListener('click', (e) => { e.stopPropagation(); nextTrack(false); });
 $('#mini-prev').addEventListener('click', (e) => { e.stopPropagation(); prevTrack(); });
 $('#mini-like').addEventListener('click', (e) => { e.stopPropagation(); if (Player.current) Library.toggleFav(Player.current); });
-/* Di layar kecil dan di dalam aplikasi, bilah pemutar tidak menampilkan
-   tombol Now Playing sama sekali, jadi judul lagunya yang menjadi jalan
-   masuk. Yang diperiksa keberadaan tombolnya, bukan lebar layar: kalau
-   tombolnya ada, judulnya sengaja tidak melakukan apa-apa. */
+/* On small screens and inside the app, the player bar shows no Now Playing
+   button at all, so the song title becomes the way in. What gets checked is
+   whether the button is there, not how wide the screen is: where the button
+   exists, the title deliberately does nothing. */
 function npButtonShown() {
   const btn = $('#mini-open');
-  // Yang disembunyikan di layar kecil adalah induknya, .pb-right, dan itu
-  // tidak mengubah display milik tombolnya sendiri. Jadi yang diperiksa
-  // apakah tombolnya benar-benar memakan tempat di layar.
+  // What gets hidden on a small screen is the parent, .pb-right, and that
+  // leaves the button's own display untouched. So what is checked is whether
+  // the button actually takes up any room on screen.
   return !!btn && btn.getBoundingClientRect().width > 0;
 }
 
-/* Hanya tombol Now Playing yang membuka panelnya.
-   Dulu seluruh bilah pemutar bisa diklik untuk membuka, termasuk ruang
-   kosongnya, begitu pula sampul dan judul lagu. Akibatnya panel terbuka
-   tanpa diminta hanya karena bilahnya tersenggol. */
+/* Only the Now Playing button opens the panel.
+   The whole player bar used to open it, empty space included, and so did the
+   artwork and the song title. The result was a panel opening uninvited simply
+   because the bar got brushed. */
 const openNP = (e) => {
   if (e) e.stopPropagation();
   Player.pending = null;
@@ -3217,15 +3188,15 @@ if (npShare) npShare.addEventListener('click', () => shareSong(focusedSong()));
 const npMore = $('#np-more');
 if (npMore) npMore.addEventListener('click', openNowPlayingMore);
 $('#np-artist').addEventListener('click', (e) => { e.stopPropagation(); goToArtist(focusedSong()); });
-/* Baris artis di bilah pemutar menuju halaman artis. Kliknya tetap
-   dihentikan di sini supaya tidak ada penangan lain di bilah yang ikut
-   terpicu. Kalau tidak ada artis yang bisa dituju, kliknya dibiarkan saja. */
+/* The artist line in the player bar goes to the artist page. The click is
+   stopped here so no other handler on the bar fires along with it. When there
+   is no artist to go to, the click is left alone. */
 $('#mini-artist').addEventListener('click', (e) => {
   if (!e.currentTarget.classList.contains('linkish')) return;
   e.stopPropagation();
   goToArtist(Player.current);
 });
-/* Enter dan spasi pada baris artis sama dengan mengkliknya. */
+/* Enter and space on the artist line do the same as clicking it. */
 [$('#mini-artist'), $('#np-artist')].forEach((el) => {
   if (!el) return;
   el.addEventListener('keydown', (e) => {
@@ -3505,12 +3476,12 @@ function currentLyricText() {
   if (L.plain) return String(L.plain).split('\n').map((x) => x.trim()).find(Boolean) || '';
   return '';
 }
-/* Gambar untuk jendela PiP di ponsel dan tablet.
+/* What gets drawn in the picture in picture window on phones and tablets.
  *
- * Di sana tidak ada cara menaruh HTML di dalam jendela PiP, jadi kartunya
- * digambar sendiri ke kanvas supaya tampilannya sedekat mungkin dengan widget
- * versi desktop: sampul, judul, artis, bilah durasi, dan penanda keadaan.
- * Tombolnya sendiri milik browser dan muncul di atas gambar ini saat disentuh.
+ * There is no way to put HTML inside that window, so the card is painted onto
+ * a canvas by hand to come as close as possible to the desktop widget:
+ * artwork, title, artist, a progress bar and a note of what it is doing. The
+ * buttons belong to the browser and appear over this picture when touched.
  */
 function roundedBox(ctx, x, y, w, h, r) {
   roundRect(ctx, x, y, w, h, r);
@@ -3532,7 +3503,7 @@ function drawPipFrame(pct) {
   const s = Player.current;
   if (s && s.thumbnail) loadPipArt(s.thumbnail);
 
-  // latar: sampul yang diburamkan, lalu diredupkan
+  // background: the artwork, blurred and then dimmed
   ctx.fillStyle = '#0a1220';
   ctx.fillRect(0, 0, w, h);
   if (pipArtImg) {
@@ -3551,7 +3522,7 @@ function drawPipFrame(pct) {
   const artSize = 112;
   const artX = pad, artY = 40;
 
-  // sampul
+  // artwork
   ctx.save();
   roundRect(ctx, artX, artY, artSize, artSize, 12);
   ctx.clip();
@@ -3565,7 +3536,7 @@ function drawPipFrame(pct) {
   }
   ctx.restore();
 
-  // judul dan artis
+  // title and artist
   const tx = artX + artSize + 18;
   const maxW = w - tx - pad;
   ctx.textAlign = 'left';
@@ -3596,7 +3567,7 @@ function drawPipFrame(pct) {
   ctx.font = '700 14px "Plus Jakarta Sans", Segoe UI, sans-serif';
   ctx.fillText(berjalan ? 'Memutar' : 'Dijeda', tx + 24, iy + 2);
 
-  // bilah durasi
+  // progress bar
   const barY = artY + artSize + 26;
   const barW = w - pad * 2;
   ctx.fillStyle = 'rgba(146,166,198,0.28)';
@@ -3607,7 +3578,7 @@ function drawPipFrame(pct) {
     roundedBox(ctx, pad, barY, Math.max(6, barW * p), 6, 3);
   }
 
-  // satu baris lirik kalau ada, mengisi ruang sisa
+  // one line of lyric if there is one, filling the space that is left
   const baris = currentLyricText();
   if (baris) {
     ctx.textAlign = 'center';
@@ -3617,25 +3588,25 @@ function drawPipFrame(pct) {
   }
 }
 
-/* ---------- video kanvas untuk jendela PiP di ponsel dan tablet ----------
+/* ---------- the canvas video behind picture in picture on phones ----------
  *
- * Jendelanya dibuat dari elemen <video> berisi kanvas gambaran sendiri,
- * sementara musiknya berbunyi di frame YouTube.
+ * The window is built from a <video> element fed by a canvas we paint
+ * ourselves, while the music comes out of the YouTube frame.
  *
- * Perintah putar dan jeda TIDAK diambil dari event video ini. Sempat dicoba
- * begitu dan akibatnya fatal: di ponsel, browser menjeda video kanvasnya
- * sendiri begitu halaman disembunyikan, dan itu terbaca sebagai perintah jeda
- * sehingga musiknya langsung mati. Di tablet videonya tidak dijeda, jadi
- * gejalanya hanya muncul di ponsel.
+ * Play and pause are NOT taken from this video's events. That was tried once
+ * and the result was fatal: on a phone the browser pauses its own canvas video
+ * the moment the page is hidden, that read as a pause command, and the music
+ * died on the spot. On a tablet the video is not paused, so the symptom only
+ * ever showed up on phones.
  *
- * Yang benar, perintahnya lewat Media Session, yang penangannya sudah
- * didaftarkan di setupMediaSession. Tombol sebelumnya dan berikutnya yang
- * muncul di jendela PiP membuktikan jalur itu memang yang dipakai Android;
- * elemen video biasa tidak punya tombol lompat lagu.
+ * The right route is Media Session, whose handlers are already registered in
+ * setupMediaSession. The previous and next buttons that appear in the picture
+ * in picture window are proof that this is the path Android uses; a plain
+ * video element has no skip buttons at all.
  *
- * Tugas berkas ini tinggal dua: menjaga videonya tetap berjalan supaya
- * gambarnya tidak mati, dan menyamakan keadaannya dengan musik supaya
- * browser tidak salah menampilkan.
+ * Two jobs are left here: keep the video running so the picture does not go
+ * dead, and keep its state in step with the music so the browser does not
+ * show the wrong thing.
  */
 let _pipSelf = false;
 
@@ -3644,8 +3615,8 @@ function bindPipVideo(video) {
   video._pipBound = true;
   video.addEventListener('pause', () => {
     if (_pipSelf || !Player.floatOn) return;
-    // Bukan perintah pengguna, melainkan browser yang menidurkan videonya.
-    // Hidupkan lagi selama musiknya memang sedang ingin berjalan.
+    // Not a command from anyone, just the browser putting the video to sleep.
+    // Start it again as long as the music is meant to be running.
     if (!Player.wantPlaying) return;
     _pipSelf = true;
     try { const r = video.play(); if (r && r.catch) r.catch(() => {}); } catch {}
@@ -3653,7 +3624,7 @@ function bindPipVideo(video) {
   });
 }
 
-/* Menyamakan keadaan video kanvas dengan keadaan musik. */
+/* Keeps the canvas video's state in step with the music. */
 function syncPipVideo(playing) {
   const video = $('#pip-video');
   if (!video || !Player.floatOn || !video.srcObject) return;
@@ -3687,9 +3658,9 @@ async function startSystemPip() {
     _pipSelf = true;
     await video.play();
     _pipSelf = false;
-    // Beberapa bingkai dulu sebelum jendelanya diminta. Tanpa ini jendela
-    // sempat terbuka sebelum kanvasnya sempat tergambar, dan yang terlihat
-    // layar hitam.
+    // A few frames first, before the window is asked for. Without this the
+    // window opens before the canvas has been painted and all anyone sees is
+    // a black rectangle.
     for (let i = 0; i < 3; i++) {
       await new Promise((r) => requestAnimationFrame(() => r()));
       drawPipFrame(0);
@@ -3704,9 +3675,9 @@ async function startSystemPip() {
     } else {
       return false;
     }
-    // Menutup jendelanya berarti selesai. Dulu di sini mode widget malah
-    // dipertahankan dan bilah kecil di halaman dimunculkan, jadi menutup
-    // popup tidak pernah mengembalikan tampilan semula.
+    // Closing the window means done. This used to keep widget mode on and
+    // bring up the small in page bar instead, so closing the popup never put
+    // things back the way they were.
     video.onleavepictureinpicture = () => {
       if (Player.floatOn) closeFloatWidget();
     };
@@ -3717,10 +3688,10 @@ async function startSystemPip() {
 }
 
 async function openFloatWidget() {
-  // Widgetnya mengikuti lagu yang sedang berjalan, jadi harus ada yang
-  // berjalan. Player.current saja tidak cukup: antrean yang dipulihkan dari
-  // simpanan sudah punya lagu tapi belum pernah diputar, dan jendelanya
-  // terbuka tanpa apa pun untuk dikendalikan.
+  // The widget follows whatever is running, so something has to be running.
+  // Player.current alone is not enough: a queue restored from storage already
+  // has a song in it that has never been played, and the window would open
+  // with nothing to control.
   if (!Player.current || Player.cued) { toast(tr('toast.playFirst')); return; }
   Player.floatOn = true;
   closeNowPlaying();
@@ -3728,20 +3699,20 @@ async function openFloatWidget() {
   drawPipFrame();
   /* Urutannya penting.
    *
-   * Document picture-in-picture didahulukan karena jendelanya berisi widget
-   * kita sendiri, lengkap dengan tombol putar, lompat lagu, dan penggeser
-   * durasi. Sebelumnya yang didahulukan adalah picture-in-picture bawaan
-   * berisi kanvas lirik, dan tombol-tombol di jendela itu milik browser:
-   * untuk stream kanvas, browser tidak menyediakan tombol putar sama sekali,
-   * hanya lompat sepuluh detik yang tidak melakukan apa pun. Itulah jendela
-   * tanpa tombol putar yang terlihat selama ini.
+   * Document picture in picture comes first because that window holds our own
+   * widget, play button, skip buttons and scrubber included. What used to come
+   * first was the plain picture in picture holding a canvas of lyrics, and the
+   * buttons in that window belong to the browser: for a canvas stream it
+   * offers no play button at all, only a ten second skip that does nothing.
+   * That was the window with no play button people kept running into.
    *
-   * Didahulukan juga karena permintaannya butuh izin dari klik yang barusan
-   * terjadi, dan izin itu bisa kedaluwarsa setelah menunggu percobaan lain.
+   * It also comes first because the request needs the permission carried by
+   * the click that just happened, and that runs out while another attempt is
+   * being waited on.
    *
-   * Sisanya tetap ada sebagai cadangan: kanvas untuk browser ponsel yang
-   * belum mendukung document picture-in-picture, lalu bilah kecil di dalam
-   * halaman kalau keduanya tidak tersedia. */
+   * The rest stay as fallbacks: the canvas for phone browsers that do not
+   * support document picture in picture yet, then the small in page bar when
+   * neither is available. */
   const el = $('#float-widget');
   const docOk = await openPipWidget();
   const sysOk = docOk ? false : await startSystemPip();
@@ -3775,7 +3746,7 @@ function closeFloatWidget() {
     if (video.webkitSetPresentationMode && video.webkitPresentationMode === 'picture-in-picture') {
       try { video.webkitSetPresentationMode('inline'); } catch {}
     }
-    // kanvasnya tidak perlu terus digambar setelah jendelanya hilang
+    // no point painting the canvas once the window is gone
     try { video.pause(); } catch {}
   }
   syncFloatWidget();
@@ -3828,52 +3799,52 @@ function isPhoneDefaultMode() {
   return isHandheld() && /Mobile/i.test(navigator.userAgent);
 }
 
-/* Ponsel maupun tablet Android yang browsernya masih mode biasa.
+/* Android phones and tablets whose browser is still in its normal mode.
  *
- * Lebih luas daripada isPhoneDefaultMode di atas, dan memang harus. Fungsi itu
- * menuntut penanda Mobile, sedangkan tablet Android tidak pernah mengirimnya
- * walau sedang mode biasa, jadi tablet tidak pernah ikut terjaring padahal
- * persoalan dan jalan keluarnya sama persis.
+ * Wider than isPhoneDefaultMode above, and it has to be. That one wants the
+ * Mobile token, and an Android tablet never sends it even in normal mode, so
+ * tablets never got caught by it despite having the same problem and the same
+ * way out.
  *
- * Yang dipakai di sini kata Android, karena meminta situs desktop membuang
- * kata itu dari user agent sepenuhnya: Chrome menggantinya dengan user agent
- * Linux desktop. Layar sentuh menyingkirkan desktop sungguhan. Terukur pada
- * lima keadaan:
+ * What is used here is the word Android, because asking for the desktop site
+ * drops that word from the user agent entirely: Chrome swaps in a Linux
+ * desktop user agent instead. Touch rules out a real desktop. Measured across
+ * five cases:
  *
- *   ponsel mode biasa     sentuh, ada Android    -> benar
- *   tablet mode biasa     sentuh, ada Android    -> benar
- *   ponsel mode desktop   sentuh, tanpa Android  -> salah
- *   tablet mode desktop   sentuh, tanpa Android  -> salah
- *   desktop sungguhan     tanpa keduanya         -> salah
+ *   phone, normal mode     touch, Android present  -> true
+ *   tablet, normal mode    touch, Android present  -> true
+ *   phone, desktop site    touch, no Android       -> false
+ *   tablet, desktop site   touch, no Android       -> false
+ *   real desktop           neither                 -> false
  *
- * Ada kemungkinan browser Android selain Chrome tetap menyisakan kata Android
- * saat mode desktop. Akibat terburuknya ringan, yaitu panduan tampil kepada
- * orang yang sudah mengaktifkannya, dan itu bisa ditutup.
+ * An Android browser other than Chrome might keep the word Android on the
+ * desktop site. The worst that costs is light: the guide shows up for someone
+ * who already turned it on, and it can be closed.
  */
 function isAndroidDefaultMode() {
   return isHandheld() && /Android/i.test(navigator.userAgent);
 }
 
-/* Satu satunya jalan yang benar benar bekerja di browser ponsel, dan tidak ada
- * seorang pun tahu caranya kalau tidak diberitahu. Sengaja berupa langkah
- * bernomor sesuai apa yang terlihat di layar, bukan penjelasan teknis, karena
- * yang dibutuhkan di sini cuma tahu harus menekan apa. */
-function panduanModeDesktop() {
-  store.set('panduan_dilihat', true);
+/* The one thing that genuinely works in a phone browser, and nobody knows how
+ * to do it unless they are told. Deliberately numbered steps matching what is
+ * on screen rather than an explanation, because all anyone needs here is to
+ * know what to press. */
+function openDesktopSiteGuide() {
+  store.set('guide_seen', true);
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
   if (!modal || !body) return;
   $('#modal-title').textContent = tr('guide.title');
   if (actions) actions.classList.add('hidden');
-  body.innerHTML = `<div class="panduan">
-      <p class="panduan-kata">${tr('guide.intro')}</p>
-      <ol class="panduan-langkah">
+  body.innerHTML = `<div class="guide">
+      <p class="guide-line">${tr('guide.intro')}</p>
+      <ol class="guide-steps">
         <li>${tr('guide.step1')}</li>
         <li>${tr('guide.step2')}</li>
         <li>${tr('guide.step3')}</li>
       </ol>
-      <p class="panduan-kata">${tr('guide.outro')}</p>
+      <p class="guide-line">${tr('guide.outro')}</p>
       <div class="pl-form-actions">
         <a class="pill-btn" id="pd-apl" href="https://github.com/adiirmd/arMusic/releases/latest" target="_blank" rel="noopener">${icon('i-download')}<span>${tr('guide.androidApp')}</span></a>
         <button type="button" class="pill-btn primary" id="pd-ok">${tr('guide.gotIt')}</button>
@@ -3884,13 +3855,13 @@ function panduanModeDesktop() {
   modal.classList.remove('hidden');
 }
 
-/* Kepastian bahwa yang barusan dilakukan berhasil. Tanpa ini orang menyalakan
- * setelannya lalu tidak pernah tahu apakah sudah benar. Penandanya dibersihkan
- * supaya hanya muncul sekali. */
-function cekModeDesktopMenyala() {
-  if (!store.get('panduan_dilihat', false)) return;
+/* Confirmation that what someone just did worked. Without it they turn the
+ * setting on and never find out whether they got it right. The marker is
+ * cleared so this only ever says it once. */
+function noticeDesktopSiteOn() {
+  if (!store.get('guide_seen', false)) return;
   if (!isHandheld() || isAndroidDefaultMode()) return;
-  store.set('panduan_dilihat', false);
+  store.set('guide_seen', false);
   store.set('appbanner_off', true);
   toast(tr('toast.desktopOn'));
 }
@@ -3902,14 +3873,14 @@ function maybeShowAppBanner() {
     isAndroidDefaultMode() &&
     !document.documentElement.classList.contains('in-app');
   if (!worthOffering || store.get('appbanner_off', false)) return;
-  // Di perangkat yang pemutaran latar belakangnya memang tidak jalan, yang
-  // didahulukan saklar yang menyelesaikannya saat itu juga. Menawarkan unduhan
-  // saja berarti menyuruh orang memasang aplikasi untuk sesuatu yang sudah
-  // diselesaikan menu browsernya sendiri. Berlaku untuk ponsel dan tablet,
-  // karena keduanya sama sama terkunci selama masih mode biasa.
-  const judul = el.querySelector('.ab-title');
+  // On devices where background playback really does not work, lead with the
+  // switch that settles it on the spot. Offering only the download means
+  // telling someone to install an app for something their own browser menu
+  // already handles. Holds for phones and tablets alike, since both are stuck
+  // the same way while they stay in normal mode.
+  const heading = el.querySelector('.ab-title');
   const sub = el.querySelector('.ab-sub');
-  if (judul) judul.textContent = tr('banner.title');
+  if (heading) heading.textContent = tr('banner.title');
   if (sub) sub.textContent = tr('banner.sub');
   el.classList.remove('hidden');
 }
@@ -3920,14 +3891,14 @@ $('#ab-close')?.addEventListener('click', (e) => {
 });
 // tapping through to the release is an answer too, so stop asking
 $('#ab-get')?.addEventListener('click', (e) => { e.stopPropagation(); store.set('appbanner_off', true); });
-// seluruh spanduknya membuka panduan, bukan cuma satu tombol kecil di dalamnya
-$('#app-banner')?.addEventListener('click', () => panduanModeDesktop());
+// the whole banner opens the guide, not just one small button inside it
+$('#app-banner')?.addEventListener('click', () => openDesktopSiteGuide());
 $('#app-banner')?.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); panduanModeDesktop(); }
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDesktopSiteGuide(); }
 });
 /* The app tags the page after load, so the check waits for that to land. */
 window.addEventListener('load', () => setTimeout(() => {
-  cekModeDesktopMenyala();
+  noticeDesktopSiteOn();
   maybeShowAppBanner();
 }, 300));
 
@@ -4001,23 +3972,20 @@ const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
 let bgHintShown = false;
 
-/* Memaksa bingkai YouTube jalan lagi hanya masuk akal di tempat yang memang
- * mengizinkannya, yaitu mode desktop dan perangkat bukan ponsel. Di ponsel
- * mode biasa permintaannya selalu ditolak, dan menahannya berkali kali bukan
- * cuma sia sia: tiap percobaan sempat mengeluarkan bunyi sepenggal sebelum
- * dihentikan lagi, jadi yang terdengar adalah suara putus putus seperti
- * tersendat. Lebih baik diam.
- *
- * Kalau suaranya sudah dipegang elemen audio, penahanan ini tetap berguna,
- * karena yang diminta jalan lagi adalah elemen kita sendiri. */
-function bolehPaksaLanjut() {
+/* Pushing the YouTube frame to start again only makes sense where that is
+ * actually allowed, which is the desktop site and anything that is not a
+ * phone. On a phone in normal mode the request is always refused, and pressing
+ * it over and over is worse than pointless: every attempt lets out a fragment
+ * of sound before being stopped again, so what people hear is a stutter. Far
+ * better to stay quiet. */
+function mayForceResume() {
   return !isPhoneDefaultMode();
 }
 
 function resumeIfBackgroundPause(state) {
   if (!document.hidden || !Player.wantPlaying || Player.cued) return;
   if (state !== YT.PlayerState.PAUSED) return;
-  if (!bolehPaksaLanjut()) return;
+  if (!mayForceResume()) return;
   if (bgResumeTries >= BG_RESUME_MAX) return;
   bgResumeTries++;
   try { PB.play(); } catch {}
@@ -4045,16 +4013,16 @@ document.addEventListener('visibilitychange', () => {
     try { PB.play(); } catch {}
     // Say why it happened, once on this device. Nagging about it every time
     // someone checks a message would be worse than the silence was.
-    /* Ini detik paling berguna untuk menjelaskannya, karena persis saat orang
-       merasakan masalahnya sendiri. Dulu cuma toast, yang hilang sebelum
-       sempat dibaca dan tidak memberi tahu caranya. Sekali saja per perangkat,
-       menagih terus tiap kali orang mengecek pesan justru lebih buruk daripada
-       diamnya yang dulu. */
+    /* This is the most useful second to explain it, because it is exactly when
+       someone runs into the problem themselves. It used to be a toast, which
+       vanished before it could be read and never said how to fix it. Once per
+       device only: nagging every time someone checks a message would be worse
+       than the silence it replaced. */
     if (!bgHintShown && !store.get('bgnote', false) && isAndroidDefaultMode()
         && !document.documentElement.classList.contains('in-app')) {
       bgHintShown = true;
       store.set('bgnote', true);
-      panduanModeDesktop();
+      openDesktopSiteGuide();
     }
   }
   bgResumeTries = 0;
@@ -4065,7 +4033,7 @@ setInterval(() => {
   if (!Player.yt || !Player.ready) return;
   if (!document.hidden) { bgResumeTries = 0; return; }
   if (!Player.wantPlaying || Player.cued) return;
-  if (!bolehPaksaLanjut()) return;
+  if (!mayForceResume()) return;
   if (bgResumeTries >= BG_RESUME_MAX) return;
   let st = -1;
   try { st = PB.state(); } catch { return; }
@@ -4081,8 +4049,8 @@ setInterval(() => {
 /* cleanup: unregister any previously installed service worker */
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
-  // aplikasi ini tidak memakai Cache API sama sekali, jadi apa pun yang
-  // tersisa di sini milik versi lama dan boleh dibuang seluruhnya
+  // this app never touches the Cache API, so anything left in here belongs to
+  // an older version and can go entirely
   if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {});
 }
 

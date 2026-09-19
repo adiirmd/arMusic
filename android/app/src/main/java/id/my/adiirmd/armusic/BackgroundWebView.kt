@@ -6,18 +6,17 @@ import android.view.View
 import android.webkit.WebView
 
 /**
- * WebView yang tidak pernah melaporkan dirinya tersembunyi.
+ * A WebView that never admits to being hidden.
  *
- * Inilah yang membuat audio tetap berbunyi saat aplikasi diminimize.
- * Rantainya begini: aplikasi ditinggalkan -> jendelanya dianggap tidak
- * terlihat -> WebView meneruskan itu ke halaman sebagai visibilityState
- * "hidden" -> pemutar YouTube di dalamnya menjeda dirinya sendiri. Jeda itu
- * datang dari halaman, bukan dari sistem, jadi memanggil play berulang kali
- * tidak pernah menang.
+ * This is what keeps the sound going when the app is put away. The chain runs
+ * like this: the app leaves the screen, its window counts as invisible, the
+ * WebView passes that on to the page as a visibilityState of "hidden", and the
+ * YouTube player inside pauses itself. That pause comes from the page rather
+ * than from the system, so calling play over and over never wins.
  *
- * Dengan selalu meneruskan View.VISIBLE, halamannya tidak pernah menerima
+ * By always reporting View.VISIBLE, the page never receives
  * kabar bahwa ia disembunyikan, sehingga pemutarnya terus berjalan. Prosesnya
- * sendiri dijaga tetap hidup oleh PlaybackService yang berjalan di foreground.
+ * itself is kept alive by PlaybackService running in the foreground.
  */
 @SuppressLint("ViewConstructor")
 class BackgroundWebView(context: Context) : WebView(context) {
@@ -26,7 +25,7 @@ class BackgroundWebView(context: Context) : WebView(context) {
     var releasing = false
 
     override fun onWindowVisibilityChanged(visibility: Int) {
-        // Saat dibongkar, biarkan perilaku aslinya supaya tidak ada yang bocor.
+        // On teardown, hand normal behaviour back so nothing is left leaking.
         if (releasing) super.onWindowVisibilityChanged(visibility)
         else super.onWindowVisibilityChanged(View.VISIBLE)
     }

@@ -219,8 +219,8 @@ a { color: inherit; }
 .lib-empty { color: var(--muted); font-size: 13px; padding: 14px 10px; line-height: 1.6; }
 .lib-empty b { color: var(--text); }
 .sidebar-footer { font-size: 11px; color: var(--subdued); padding: 12px 8px 4px; }
-/* namanya sedikit lebih tebal dan sedikit lebih terang dari tagline-nya,
-   cukup untuk memimpin tanpa berubah jadi judul */
+/* the name sits a little heavier and a little brighter than the tagline,
+   enough to lead without turning into a heading */
 .sf-name { font-weight: 700; color: var(--muted); }
 
 /* ---------- main ---------- */
@@ -277,9 +277,10 @@ html[data-theme="light"] .tb-btn { background: rgba(0, 0, 0, 0.08); color: var(-
 .tb-search .ic { width: 20px; height: 20px; }
 .tb-search:hover { background: var(--card-hover); color: var(--text); }
 .tb-actions { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
-/* Topbarnya sticky setinggi 66px dan isinya lewat di bawahnya, jadi jarak
-   yang terasa pas di mockup terlihat mepet begitu ada judul sebesar
-   .page-title di bawahnya. Layar kecil punya nilainya sendiri di bawah. */
+/* The topbar is sticky at 66px and content passes underneath it, so spacing
+   that looked right in a mockup reads as cramped the moment a heading the size
+   of .page-title sits below it. Small screens get their own value further
+   down. */
 #view { max-width: 1480px; margin: 0 auto; padding: 44px 24px 48px; }
 #view.view-enter { animation: fadeUp 0.38s ease; }
 .page-title {
@@ -287,9 +288,9 @@ html[data-theme="light"] .tb-btn { background: rgba(0, 0, 0, 0.08); color: var(-
   font-weight: 800; margin-bottom: 22px;
   letter-spacing: -0.03em; line-height: 1.15;
 }
-/* Sapaan halaman dipusatkan, jadi kepala halaman berdiri sendiri sebagai
-   blok dan tidak lagi terbaca menempel ke sudut kiri atas. Isi di bawahnya
-   tetap rata kiri. */
+/* The greeting is centred, so the page header stands on its own as a block
+   instead of reading as stuck to the top left corner. Everything below it
+   stays left aligned. */
 .hello-row {
   display: flex; align-items: flex-end; justify-content: center;
   gap: 12px; margin-bottom: 30px; text-align: center;
@@ -447,8 +448,8 @@ html[data-theme="light"] .art-ph { background: linear-gradient(145deg, #e6eefa, 
 .track .tt { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
 .track .ts { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
 .track .tdur { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; flex-shrink: 0; }
-/* durasi yang tidak diketahui tetap memakai tempatnya, hanya lebih redup,
-   supaya barisnya tidak bergeser dan kolom Time tetap lurus */
+/* an unknown duration still takes up its space, only dimmer, so the row does
+   not shift and the Time column stays in line */
 .track .tdur-none { color: var(--subdued); }
 .track .tbtn { color: var(--muted); padding: 6px; border-radius: 50%; opacity: 0; transition: opacity 0.15s, color 0.15s, transform 0.15s; line-height: 0; }
 .track .tbtn .ic { width: 15px; height: 15px; }
@@ -476,9 +477,9 @@ body.paused .eq i { animation: none; height: 5px; }
 }
 
 /* ---------- keadaan kosong ---------- */
-/* Kelas-kelas ini dipakai di seluruh aplikasi tapi tidak pernah punya aturan
-   dasar, hanya penimpa warna untuk panel Now Playing. Akibatnya isinya
-   menumpuk rata kiri tanpa jarak. */
+/* These classes are used all over the app but never had base rules of their
+   own, only colour overrides for the Now Playing panel. The result was content
+   piling up on the left with no spacing at all. */
 .empty-block {
   display: flex; flex-direction: column; align-items: center;
   text-align: center; gap: 8px;
@@ -494,7 +495,7 @@ body.paused .eq i { animation: none; height: 5px; }
 .empty-s { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
 .empty-cta { margin-top: 14px; }
 
-/* panel Now Playing jauh lebih sempit, jadi jaraknya dipadatkan */
+/* the Now Playing panel is far narrower, so the spacing tightens up */
 #nowplaying .empty-block { padding: 28px 12px 32px; gap: 6px; }
 #nowplaying .empty-ic { width: 46px; height: 46px; }
 #nowplaying .empty-ic .ic { width: 20px; height: 20px; }
@@ -542,7 +543,7 @@ html[data-theme="light"] .detail-head .detail-info h1 { color: #0d1b2f; }
   color: var(--muted); font-size: 11.5px; font-weight: 700;
   letter-spacing: 0.08em; text-transform: uppercase;
 }
-/* jarak sampai kolom judul: sampul 40px ditambah dua jarak antar elemen */
+/* distance to the title column: 40px of artwork plus two gaps */
 .th-n { width: 22px; text-align: center; margin-right: var(--track-lead); flex-shrink: 0; }
 .th-t { flex: 1; }
 /* Judul kolom Time harus berhenti tepat di atas kolom durasinya. Jaraknya
@@ -727,14 +728,14 @@ body.np-open.has-player #nowplaying { margin-bottom: var(--player-h); }
   }
 }
 @media (max-width: 980px) {
-  /* di sini tombol Now Playing disembunyikan, jadi judulnya jalan masuknya */
+  /* the Now Playing button is hidden here, so the title becomes the way in */
   #mini-title { cursor: pointer; }
   #mini-title:hover { text-decoration: underline; }
 }
 #mini-artist { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
 #mini-artist.linkish { cursor: pointer; }
 #mini-artist.linkish:hover { color: var(--text); text-decoration: underline; }
-/* baris artis kini bisa difokuskan, jadi fokusnya harus terlihat */
+/* the artist line can take focus now, so focus has to be visible */
 #mini-artist.linkish:focus-visible, #np-artist.linkish:focus-visible {
   outline: 2px solid var(--accent-bright); outline-offset: 2px; border-radius: 3px;
 }
@@ -1185,8 +1186,8 @@ body.float-mode.has-player #sidebar { margin-bottom: 0; }
 }
 #pip-canvas, #pip-video {
   position: fixed;
-  /* mengikuti bentuk bitmap kanvasnya, 480x270, supaya kotaknya tidak
-     bertentangan dengan rasio jendela picture-in-picture nantinya */
+  /* follows the canvas bitmap, 480x270, so the box does not fight the shape
+     of the picture in picture window later on */
   width: 160px;
   height: 90px;
   left: 0;
@@ -1306,11 +1307,11 @@ body.hq-audio #yt-player {
 @media (max-width: 860px){
   #app { padding: 0; gap: 0; }
   #sidebar { display: none; }
-  /* Di ponsel, bilah atas dulu disembunyikan seluruhnya karena kembali, maju,
-     dan pencariannya sudah diwakili navigasi bawah. Yang ikut hilang ternyata
-     tombol bahasa dan tema, padahal keduanya berlaku untuk seluruh aplikasi
-     dan tidak punya tempat lain. Jadi yang disembunyikan bagiannya saja, dan
-     sisanya dibuat setipis mungkin supaya tidak memakan layar. */
+  /* On a phone the topbar used to be hidden entirely, since back, forward and
+     search are already covered by the bottom navigation. What went with it
+     were the language and theme buttons, which apply to the whole app and have
+     nowhere else to live. So only those parts are hidden now, and what is left
+     is kept as thin as possible so it does not eat the screen. */
   #topbar { padding: 8px 16px 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
   #topbar .tb-nav, #topbar .tb-search { display: none; }
   #main { border-radius: 0; }
@@ -1377,7 +1378,7 @@ body.hq-audio #yt-player {
 
   /* Track rows: ⋮ only — titles get the width */
   .track { gap: 10px; padding: 8px 6px; }
-  /* tersisa satu tombol dan jaraknya lebih rapat, jadi lebarnya ikut berubah */
+  /* one button left and tighter spacing, so the width changes with it */
   :root { --track-actions: 37px; --track-lead: 60px; }
   .track-head { padding: 6px 6px 8px; }
   .track .tbtn { display: none; }
@@ -1696,8 +1697,8 @@ body.on-search #tb-search { display: none; }
 @media (max-width: 420px) {
   .lib-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
 }
-/* di layar sempit jarak blok kosong dikurangi, kalau tidak isinya terdorong
-   jauh ke bawah dan tombolnya perlu discroll dulu */
+/* narrow screens get less padding around an empty block, or its contents get
+   pushed so far down that the button needs scrolling to */
 @media (max-width: 560px) {
   .empty-block { padding: 36px 16px 44px; }
   .empty-ic { width: 50px; height: 50px; }
@@ -1760,36 +1761,36 @@ html.in-app input { -webkit-user-select: text; user-select: text; }
 .ab-close { flex: none; color: var(--muted); padding: 4px; }
 .ab-close:hover { color: var(--text); }
 .ab-close .ic { width: 15px; height: 15px; }
-/* seluruh spanduknya bisa diketuk, jadi harus terlihat begitu */
+/* the whole banner is tappable, so it has to look that way */
 #app-banner { cursor: pointer; }
 #app-banner:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* ---------- panduan mengaktifkan Situs desktop ---------- */
-.panduan-kata {
+/* ---------- the guide for turning on Desktop site ---------- */
+.guide-line {
   font-size: 13px; color: var(--muted); font-weight: 500;
   line-height: 1.5; margin: 0 0 14px;
 }
-.panduan-langkah {
+.guide-steps {
   margin: 0 0 16px; padding: 0 0 0 20px;
   display: flex; flex-direction: column; gap: 8px;
   font-size: 13.5px; line-height: 1.45; color: var(--text);
 }
-.panduan-langkah li { padding-left: 2px; }
-.panduan-langkah li::marker { color: var(--accent); font-weight: 800; }
-.panduan-langkah b { font-weight: 800; }
-/* di layar sempit tombolnya turun sendiri, biar tidak terpotong */
+.guide-steps li { padding-left: 2px; }
+.guide-steps li::marker { color: var(--accent); font-weight: 800; }
+.guide-steps b { font-weight: 800; }
+/* on a narrow screen the buttons wrap on their own, so nothing gets cut */
 @media (max-width: 400px) {
-  .panduan .pl-form-actions { flex-wrap: wrap; }
-  .panduan .pl-form-actions .pill-btn { flex: 1 1 100%; justify-content: center; }
+  .guide .pl-form-actions { flex-wrap: wrap; }
+  .guide .pl-form-actions .pill-btn { flex: 1 1 100%; justify-content: center; }
 }
 
-/* pinggirannya harus sama dengan padding #view, atau banner tidak segaris
-   dengan judul dan rak di bawahnya */
+/* the margins have to match the padding on #view, or the banner does not line
+   up with the heading and shelves below it */
 @media (max-width: 860px) { #app-banner { margin: 26px 16px 0; } }
 @media (max-width: 380px) { #app-banner { margin: 22px 12px 0; } }
 
 @media (max-width: 520px) {
-  /* di layar sempit tombolnya turun sendiri, judulnya tidak perlu terpotong */
+  /* on a narrow screen the button wraps on its own, so the title stays whole */
   #app-banner { flex-wrap: wrap; gap: 10px; }
   .ab-text { flex: 1 1 60%; }
   .ab-get { flex: 1 1 100%; order: 3; text-align: center; padding: 10px 16px; }

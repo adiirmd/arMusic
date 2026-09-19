@@ -2,21 +2,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-        Izin sengaja dijaga seminimal mungkin. Tidak ada akses lokasi,
-        kontak, kamera, mikrofon, maupun QUERY_ALL_PACKAGES. Daftar pendek
-        inilah yang membuat aplikasi tidak terlihat mencurigakan saat dipindai.
+        Permissions are kept as short as possible on purpose. No location,
+        contacts, camera, microphone, and no QUERY_ALL_PACKAGES. A short list
+        is what keeps the app from looking suspicious when it gets scanned.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- menjaga audio tetap jalan saat aplikasi di latar belakang -->
+    <!-- keeps the sound going while the app is in the background -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <!-- Android 13+ butuh ini untuk notifikasi pemutar -->
+    <!-- Android 13 and up will not show the player notification without this -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
-        Hanya untuk menyimpan lagu yang diunduh ke folder Musik pada Android 9
-        ke bawah. Sejak Android 10 pengunduh bawaan sistem yang menuliskannya,
-        jadi izin ini tidak diminta sama sekali di perangkat masa kini.
+        Only for saving downloaded songs into the Music folder on Android 9
+        and below. From Android 10 the system downloader writes the file, so
+        this is never asked for on anything current.
     -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

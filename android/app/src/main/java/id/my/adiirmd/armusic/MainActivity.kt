@@ -132,9 +132,9 @@ class MainActivity : AppCompatActivity() {
         keepRendererHot()
         web.addJavascriptInterface(NativeBridge(), "ARMusicNative")
 
-        // Jaring pengaman. Jalur utamanya lewat NativeBridge.download, tetapi
-        // kalau ada unduhan yang terpicu dengan cara lain, tanpa pendengar ini
-        // WebView membuangnya diam diam dan tidak ada yang pernah tahu.
+        // A safety net. The main route is NativeBridge.download, but if a
+        // download is triggered some other way, a WebView without this listener
+        // throws it away quietly and nobody ever finds out.
         web.setDownloadListener { url, _, disposisi, jenis, _ ->
             unduh(url, URLUtil.guessFileName(url, disposisi, jenis))
         }
@@ -196,31 +196,31 @@ class MainActivity : AppCompatActivity() {
     /*
      * Pemutaran di latar belakang.
      *
-     * Audionya berasal dari pemutar YouTube di dalam WebView, dan pemutar itu
-     * berhenti sendiri begitu halamannya dianggap tidak terlihat. Karena itu
-     * WebView-nya adalah BackgroundWebView, yang tidak pernah meneruskan kabar
-     * "tersembunyi" ke halaman. Tiga hal ini harus berjalan bersama:
+     * The sound comes from the YouTube player inside the WebView, and that
+     * player stops itself the moment its page counts as out of sight. So the
+     * WebView here is a BackgroundWebView, which never passes the word
+     * "hidden" on to the page. Three things have to hold together:
      *
-     *   1. WebView tidak pernah melaporkan dirinya tersembunyi
-     *   2. onPause() dan pauseTimers() tidak pernah dipanggil di sini
-     *   3. PlaybackService berjalan di foreground, supaya prosesnya tidak
-     *      dibekukan dan ada notifikasi kontrolnya
+     *   1. the WebView never admits to being hidden
+     *   2. onPause() and pauseTimers() are never called here
+     *   3. PlaybackService runs in the foreground, so the process is not
+     *      frozen and there is a notification to control it from
      */
     private fun keepRendererHot() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        // Tanpa ini proses renderer diturunkan prioritasnya begitu tidak
-        // terlihat, dan audionya bisa tersendat di HP dengan memori sempit.
+        // Without this the renderer process is demoted as soon as it leaves
+        // the screen, and the sound stutters on phones that are short on memory.
         runCatching {
             web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
         }
     }
 
     /**
-     * Menyerahkan berkasnya ke pengunduh bawaan Android, bukan mengunduhnya
-     * sendiri. Dengan begitu ada notifikasi kemajuan, unduhannya lanjut walau
-     * aplikasi ditutup, dan berkasnya masuk ke folder Musik seperti unduhan
-     * lain. Batasan skemanya penting: tanpa itu halaman bisa menyuruh membuka
-     * berkas apa pun di perangkat lewat skema file atau content.
+     * Hands the file to Android's own downloader rather than fetching it
+     * here. That way there is a progress notification, the download carries on
+     * even if the app is closed, and the file lands in the Music folder like
+     * any other download. Limiting the scheme matters: without it the page
+     * could point this at any file on the device through file or content.
      */
     private fun unduh(url: String, namaDiminta: String) {
         val uri = runCatching { Uri.parse(url) }.getOrNull()
@@ -228,8 +228,8 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, Wording.of(this, "badLink"), Toast.LENGTH_SHORT).show()
             return
         }
-        // Pemisah folder harus disingkirkan, atau berkasnya bisa mendarat di
-        // luar folder tujuan.
+        // Path separators have to go, or the file could land somewhere other
+        // than the folder it was meant for.
         val nama = namaDiminta.substringAfterLast('/').substringAfterLast('\\')
             .ifBlank { "armusic.mp3" }
 
@@ -244,8 +244,8 @@ class MainActivity : AppCompatActivity() {
             runCatching {
                 minta.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, nama)
             }.onFailure {
-                // Android lawas menuntut izin menulis untuk folder umum. Kalau
-                // ditolak, tetap terunduh, hanya tempatnya milik aplikasi ini.
+                // Older Android wants write permission for a public folder. If
+                // that is refused it still downloads, just into the app's own space.
                 minta.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_MUSIC, nama)
             }
             getSystemService(DownloadManager::class.java).enqueue(minta)

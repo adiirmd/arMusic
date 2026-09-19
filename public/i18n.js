@@ -12,7 +12,7 @@
  *   - No dashes anywhere in what people read.
  *   - Indonesian should sound like a person talking, not like English with the
  *     words swapped. Where a real Indonesian word exists it is used, so
- *     playlist becomes daftar putar and queue becomes antrean.
+ *     playlist becomes "daftar putar" and queue becomes "antrean".
  *   - Names stay names. AR Music, YouTube Music, SponsorBlock and LRCLIB are
  *     not translated in either direction.
  */
@@ -297,7 +297,7 @@ const DICT = {
   },
 
   id: {
-    /* ---------- navigasi ---------- */
+    /* ---------- navigation ---------- */
     'nav.home': 'Beranda',
     'nav.search': 'Cari',
     'nav.charts': 'Tangga Lagu',
@@ -313,7 +313,7 @@ const DICT = {
     'nav.yourPlaylists': 'Daftar putar kamu',
     'nav.likedSongs': 'Lagu Favorit',
 
-    /* ---------- pemutar ---------- */
+    /* ---------- player ---------- */
     'player.play': 'Putar',
     'player.playPause': 'Putar atau jeda',
     'player.previous': 'Sebelumnya',
@@ -342,26 +342,26 @@ const DICT = {
     'player.playAll': 'Putar semua',
     'player.openLyrics': 'Buka lirik',
 
-    /* ---------- tab sedang diputar ---------- */
+    /* ---------- now playing tabs ---------- */
     'tab.song': 'Lagu',
     'tab.lyrics': 'Lirik',
     'tab.queue': 'Antrean',
     'tab.queueCount': 'Antrean · {n}',
     'tab.related': 'Serupa',
 
-    /* ---------- lirik ---------- */
+    /* ---------- lyrics ---------- */
     'lyrics.none': 'Belum ada lirik',
     'lyrics.looking': 'Mencari lirik…',
     'lyrics.notFound': 'Lirik lagu ini tidak ketemu',
     'lyrics.earlier': 'Majukan lirik',
     'lyrics.later': 'Mundurkan lirik',
 
-    /* ---------- antrean ---------- */
+    /* ---------- queue ---------- */
     'queue.title': 'Antrean kamu',
     'queue.empty': 'Antrean masih kosong',
     'queue.clear': 'Kosongkan',
 
-    /* ---------- beranda ---------- */
+    /* ---------- home ---------- */
     'home.jumpBackIn': 'Lanjut dengar',
     'home.recentlyPlayed': 'Baru diputar',
     'home.moods': 'Suasana dan genre',
@@ -370,7 +370,7 @@ const DICT = {
     'home.afternoon': 'Selamat siang',
     'home.evening': 'Selamat malam',
 
-    /* ---------- pencarian ---------- */
+    /* ---------- search ---------- */
     'search.placeholder': 'Lagu, penyanyi, album, atau daftar putar',
     'search.recent': 'Pencarian terakhir',
     'search.searching': 'Mencari…',
@@ -381,7 +381,7 @@ const DICT = {
     'search.playlists': 'Daftar putar',
     'search.videos': 'Video',
 
-    /* ---------- koleksi ---------- */
+    /* ---------- library ---------- */
     'lib.playlists': 'Daftar putar',
     'lib.favorites': 'Favorit',
     'lib.historyTab': 'Riwayat',
@@ -396,18 +396,18 @@ const DICT = {
     'lib.saved.done': 'Tersimpan',
     'lib.thisDeviceOnly': 'Hanya di perangkat ini',
 
-    /* ---------- rekap ---------- */
+    /* ---------- stats ---------- */
     'stats.minutes': 'Menit didengar',
     'stats.plays': 'Total putar',
     'stats.unique': 'Lagu berbeda',
     'stats.topArtists': 'Penyanyi teratas',
     'stats.mostPlayed': 'Paling sering diputar',
 
-    /* ---------- kepala tabel ---------- */
+    /* ---------- table headers ---------- */
     'col.title': 'Judul',
     'col.time': 'Durasi',
 
-    /* ---------- jendela dan formulir ---------- */
+    /* ---------- modals and forms ---------- */
     'modal.close': 'Tutup',
     'modal.cancel': 'Batal',
     'modal.create': 'Buat',
@@ -444,7 +444,7 @@ const DICT = {
     'modal.sleepRunning': 'Sudah ada waktu yang berjalan. Pilih waktu baru untuk menggantinya.',
     'modal.createHint': 'Kasih nama dulu. Lagunya bisa ditambahkan kapan saja.',
 
-    /* ---------- pesan singkat ---------- */
+    /* ---------- toasts ---------- */
     'toast.addedFavorites': 'Masuk ke favorit',
     'toast.removedFavorites': 'Dikeluarkan dari favorit',
     'toast.addedPlaylist': 'Masuk ke daftar putar',
@@ -490,7 +490,7 @@ const DICT = {
     'toast.qualityNormal': 'Kualitas biasa menyala',
     'toast.desktopOn': 'Situs desktop sudah menyala. Sekarang musiknya tetap jalan waktu kamu pindah aplikasi.',
 
-    /* ---------- keadaan kosong ---------- */
+    /* ---------- empty states ---------- */
     'empty.notFound': 'Halaman tidak ketemu',
     'empty.notFound.sub': 'Tautannya tidak ada, atau halamannya sudah dihapus.',
     'empty.goHome': 'Ke beranda',
@@ -528,7 +528,7 @@ const DICT = {
     'empty.libraryEmpty': 'Koleksi kamu masih kosong',
     'empty.relatedFailed': 'Gagal memuat lagu serupa',
 
-    /* ---------- panduan situs desktop ---------- */
+    /* ---------- desktop site guide ---------- */
     'guide.title': 'Biar musiknya jalan terus',
     'guide.intro': 'Browser di ponsel menghentikan musik begitu tabnya kamu tinggal. Ada satu pengaturan browser yang mematikan perilaku itu, dan cukup dinyalakan sekali saja.',
     'guide.step1': 'Ketuk tanda tiga titik di pojok kanan atas browser',
@@ -542,7 +542,7 @@ const DICT = {
     'banner.how': 'Lihat cara',
     'banner.close': 'Tutup',
 
-    /* ---------- lain lain ---------- */
+    /* ---------- misc ---------- */
     'misc.loading': 'Memuat…',
     'misc.songs': '{n} lagu|{n} lagu',
     'misc.clear': 'Kosongkan',
