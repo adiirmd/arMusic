@@ -217,11 +217,13 @@ class PlaybackService : Service() {
         // Created every time rather than only once. Calling this again with the
         // same id renames an existing channel instead of adding a second one,
         // which is what lets the channel follow a change of language.
+        // Read out here rather than inside apply, where "this" is the channel
+        // being built and not the service.
+        val name = Wording.of(this, "channel")
+        val desc = Wording.of(this, "channelDesc")
         mgr.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID, Wording.of(this, "channel"), NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = Wording.of(this, "channelDesc")
+            NotificationChannel(CHANNEL_ID, name, NotificationManager.IMPORTANCE_LOW).apply {
+                description = desc
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
