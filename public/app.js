@@ -51,6 +51,52 @@ function updateThemeIcon() {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', currentTheme() === 'light' ? '#e8eef7' : '#070c16');
 }
+/* ---------- language ----------
+ *
+ * Switching redraws instead of reloading. A reload would take the YouTube
+ * frame down with it, and anyone who changes the language while a song is
+ * playing would lose the song. So every place that holds wording is drawn
+ * again by hand, and the player is left alone.
+ */
+function updateLangButton() {
+  const el = $('#lang-code');
+  if (el) el.textContent = I18N.LANG_LABEL[I18N.currentLang()] || 'EN';
+}
+
+function setLang(code) {
+  if (!I18N.LANGS.includes(code) || code === I18N.currentLang()) return;
+  localStorage.setItem(I18N.LANG_KEY, JSON.stringify(code));
+  I18N.applyStaticText();
+  updateLangButton();
+  notifyNativeLanguage();
+  closeModal();              // its contents were drawn in the old language
+  renderNav();
+  renderSidebarLibrary();
+  renderNowPlaying();
+  renderQueue();
+  renderPlayButtons();
+  updateLikeButtons();
+  updateQualityButton();
+  syncNpMore();
+  syncFloatWidget();
+  if (Player.current) setMediaMetadata(Player.current);
+  route();                   // the page someone is looking at right now
+}
+
+function toggleLang() {
+  setLang(I18N.currentLang() === 'en' ? 'id' : 'en');
+}
+
+/* The Android side shows a notification and the odd message of its own, and
+   those should follow the same choice rather than the phone's language. */
+function notifyNativeLanguage() {
+  try {
+    if (window.ARMusicNative && typeof ARMusicNative.setLanguage === 'function') {
+      ARMusicNative.setLanguage(I18N.currentLang());
+    }
+  } catch {}
+}
+
 function toggleTheme() {
   const next = currentTheme() === 'light' ? 'dark' : 'light';
   document.documentElement.setAttribute('data-theme', next);
@@ -141,8 +187,8 @@ const Library = {
   isFav(id) { return this.favorites.some((s) => s.videoId === id); },
   toggleFav(song) {
     let f = this.favorites;
-    if (this.isFav(song.videoId)) { f = f.filter((s) => s.videoId !== song.videoId); toast('Removed from favorites'); }
-    else { f.unshift(song); toast('Added to favorites'); }
+    if (this.isFav(song.videoId)) { f = f.filter((s) => s.videoId !== song.videoId); toast(tr('toast.removedFavorites')); }
+    else { f.unshift(song); toast(tr('toast.addedFavorites')); }
     store.set('fav', f);
     updateLikeButtons();
     renderSidebarLibrary();
@@ -193,8 +239,8 @@ const Library = {
   isSaved(browseId) { return this.saved.some((s) => s.browseId === browseId); },
   toggleSaved(item) {
     let sv = this.saved;
-    if (this.isSaved(item.browseId)) { sv = sv.filter((s) => s.browseId !== item.browseId); toast('Removed from library'); }
-    else { sv.unshift(item); toast('Saved to library'); }
+    if (this.isSaved(item.browseId)) { sv = sv.filter((s) => s.browseId !== item.browseId); toast(tr('toast.removedLibrary')); }
+    else { sv.unshift(item); toast(tr('toast.savedLibrary')); }
     store.set('sav', sv);
     renderSidebarLibrary();
   },
@@ -403,7 +449,7 @@ window.onYouTubeIframeAPIReady = () => {
         const best = bestQuality();
         if (e.data && qualityRank(e.data) > qualityRank(best)) applyPlaybackQuality();
       },
-      onError: () => { toast('Track unavailable, skipping…'); setTimeout(() => nextTrack(true), 800); },
+      onError: () => { toast(tr('toast.trackUnavailable')); setTimeout(() => nextTrack(true), 800); },
     },
   });
 };
@@ -435,18 +481,18 @@ function queueSong(song, playNext = false) {
   const s = { ...normalizeSong(song), _user: true };
   if (!Player.current) { playSong(s); return; }
   if (!playNext && alreadyQueued(song.videoId)) {
-    toast('Already in your queue');
+    toast(tr('toast.alreadyQueue'));
     renderQueue();
     return;
   }
   if (playNext) {
     Player.queue.splice(Player.index + 1, 0, s);
-    toast('Playing next');
+    toast(tr('toast.playingNext'));
   } else {
     let i = Player.index + 1;
     while (i < Player.queue.length && Player.queue[i]._user) i++;
     Player.queue.splice(i, 0, s);
-    toast('Added to your queue');
+    toast(tr('toast.addedQueue'));
   }
   renderQueue();
 }
@@ -459,7 +505,7 @@ function removeQueued(i) {
 function clearUserQueue() {
   Player.queue = Player.queue.filter((q, i) => i <= Player.index || !q._user);
   renderQueue();
-  toast('Queue cleared');
+  toast(tr('toast.queueCleared'));
 }
 function slimSong(s) {
   if (!s || !s.videoId) return null;
@@ -591,7 +637,7 @@ function startCurrent() {
   // refresh related tab lazily
   Player.relatedBrowseId = null; // stale — belongs to the previous song until fetchQueue returns
   Player.lyricsBrowseId = null;
-  $('#related-list').innerHTML = '<div class="loading-note">Loading…</div>';
+  $('#related-list').innerHTML = `<div class="loading-note">${tr('misc.loading')}</div>`;
   Player._relatedLoaded = false;
   // if the Related tab is currently open, reload it right away for the new song
   // (small delay so fetchQueue for the new song has started first)
@@ -1059,7 +1105,7 @@ function syncPlaybackUI() {
     const seg = Player.sbSegments.find((g) => cur >= g.start && cur < g.end - 0.3);
     if (seg) {
       PB.seek(seg.end, true);
-      toast(`⏩ Skipped ${seg.category.replace('_', ' ')} (SponsorBlock)`);
+      toast(tr('toast.sbSkipped', { what: seg.category.replace('_', ' ') }));
     }
   }
   const dur = PB.duration() || 0;
@@ -1099,7 +1145,7 @@ async function loadSponsorBlock(videoId) {
   try {
     const d = await api(`/api/sponsorblock?videoId=${encodeURIComponent(videoId)}`);
     Player.sbSegments = d.segments || [];
-    if (Player.sbSegments.length && Player.sbEnabled) toast(`SponsorBlock: ${Player.sbSegments.length} segment(s) will be skipped`);
+    if (Player.sbSegments.length && Player.sbEnabled) toast(tr('toast.sbSegments', { n: Player.sbSegments.length }));
   } catch {}
 }
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -1109,14 +1155,14 @@ function cycleSpeed() {
   if (Player.yt && Player.ready) PB.rate(Player.speed);
   $('#np-speed span').textContent = Player.speed + '×';
   persistQueue();
-  toast(`Speed: ${Player.speed}×`);
+  toast(tr('toast.speed', { n: Player.speed }));
 }
 function toggleSB() {
   Player.sbEnabled = !Player.sbEnabled;
   store.set('sb_on', Player.sbEnabled);
   $('#np-sb').classList.toggle('on', Player.sbEnabled);
   syncNpMore();
-  toast(Player.sbEnabled ? 'SponsorBlock on' : 'SponsorBlock off');
+  toast(tr(Player.sbEnabled ? 'toast.sbOn' : 'toast.sbOff'));
 }
 
 /* ================= lyrics ================= */
@@ -1134,7 +1180,7 @@ async function loadLyrics(song, { silent = false } = {}) {
     .find((x) => x && !looksLikePlays(x)) || '';
   const title = displayTitle(song.title) || song.title;
   if (!silent && !Player.lyrics.synced && !Player.lyrics.plain) {
-    $('#lyrics-container').innerHTML = '<div class="lyrics-empty">Looking for lyrics…</div>';
+    $('#lyrics-container').innerHTML = `<div class="lyrics-empty">${tr('lyrics.looking')}</div>`;
   }
   try {
     const d = await api(`/api/lyrics?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&duration=${durationSec}&browseId=${encodeURIComponent(Player.lyricsBrowseId || '')}`);
@@ -1217,8 +1263,8 @@ function renderLyrics() {
   } else if (L.plain) {
     c.innerHTML = `<div class="lyric-plain">${esc(L.plain)}</div>`;
   } else {
-    c.innerHTML = `<div class="lyrics-empty">No lyrics found for this track<br><br>
-      <button class="pill-btn" id="lyrics-retry">${icon('i-repeat')}<span>Try again</span></button></div>`;
+    c.innerHTML = `<div class="lyrics-empty">${tr('lyrics.notFound')}<br><br>
+      <button class="pill-btn" id="lyrics-retry">${icon('i-repeat')}<span>${tr('empty.retry')}</span></button></div>`;
     const rb = $('#lyrics-retry', c);
     if (rb) rb.addEventListener('click', () => {
       Player._lyricsRetried = false;
@@ -1336,12 +1382,12 @@ function updateQueueTab() {
   $$('.np-tab').forEach((t) => {
     if (t.dataset.nptab !== 'queue') return;
     const ic = t.querySelector('svg');
-    t.innerHTML = (ic ? ic.outerHTML : icon('i-queue')) + (n ? `Queue · ${n}` : 'Queue');
+    t.innerHTML = (ic ? ic.outerHTML : icon('i-queue')) + `<span>${n ? tr('tab.queueCount', { n }) : tr('tab.queue')}</span>`;
   });
   const q = $('#mini-queue-m');
   if (q) {
     q.classList.toggle('has-q', n > 0);
-    q.title = n ? `Queue · ${n}` : 'Queue';
+    q.title = n ? tr('tab.queueCount', { n }) : tr('tab.queue');
   }
 }
 function renderQueue() {
@@ -1351,7 +1397,7 @@ function renderQueue() {
   if (!el) return;
   if (!Player.queue.length) {
     el.innerHTML = `<div class="q-empty">
-      <div class="q-empty-title">Queue is empty</div>
+      <div class="q-empty-title">${tr('queue.empty')}</div>
       <div class="q-empty-s">Tap the queue icon on any song to add it here. Songs you add play before radio.</div>
     </div>`;
     persistQueue();
@@ -1365,20 +1411,20 @@ function renderQueue() {
   let html = '';
   html += `<div class="q-note">Your queue plays first. Radio fills in after.</div>`;
   if (now) {
-    html += `<div class="q-head">Now playing</div>${trackRowHTML({ ...now, qi: Player.index }, true)}`;
+    html += `<div class="q-head">${tr('queue.nowHead')}</div>${trackRowHTML({ ...now, qi: Player.index }, true)}`;
   }
   if (user.length) {
-    html += `<div class="q-head q-head-row"><span>Your queue · ${user.length}</span><button type="button" class="q-clear" id="q-clear">Clear</button></div>`;
+    html += `<div class="q-head q-head-row"><span>${tr('queue.yourQueueCount', { n: user.length })}</span><button type="button" class="q-clear" id="q-clear">${tr('misc.clear')}</button></div>`;
     html += user.map(({ q, i }, n) => {
       const up = n === 0 ? ' disabled' : '';
       const dn = n === user.length - 1 ? ' disabled' : '';
       return trackRowHTML({ ...q, qi: i, qn: n + 1 }, false,
-        `<button class="tbtn btn-qup" data-qi="${i}" title="Move up"${up}>${icon('i-chev-up')}</button>` +
-        `<button class="tbtn btn-qdn" data-qi="${i}" title="Move down"${dn}>${icon('i-chev-down')}</button>` +
-        `<button class="tbtn btn-qrm" data-qi="${i}" title="Remove from queue">${icon('i-x')}</button>`);
+        `<button class="tbtn btn-qup" data-qi="${i}" title="${tr('misc.moveUp')}"${up}>${icon('i-chev-up')}</button>` +
+        `<button class="tbtn btn-qdn" data-qi="${i}" title="${tr('misc.moveDown')}"${dn}>${icon('i-chev-down')}</button>` +
+        `<button class="tbtn btn-qrm" data-qi="${i}" title="${tr('misc.removeQueue')}">${icon('i-x')}</button>`);
     }).join('');
   } else {
-    html += `<div class="q-head">Your queue</div><div class="q-hint">Nothing queued yet — tap the queue icon on a song, or Play next on Now Playing.</div>`;
+    html += `<div class="q-head">${tr('queue.title')}</div><div class="q-hint">${tr('queue.hint')}</div>`;
   }
   if (radio.length) {
     html += `<div class="q-head">From radio · ${radio.length}</div>`;
@@ -1444,10 +1490,10 @@ async function loadRelated(force = false) {
   const el = $('#related-list');
   if (!el) return;
   const song = Player.current;
-  if (!song) { el.innerHTML = '<div class="loading-note">Play a song first</div>'; return; }
+  if (!song) { el.innerHTML = `<div class="loading-note">${tr('toast.playFirst')}</div>`; return; }
   if (Player._relatedLoaded && !force) return;
   Player._relatedLoaded = true;
-  el.innerHTML = '<div class="loading-note">Loading…</div>';
+  el.innerHTML = `<div class="loading-note">${tr('misc.loading')}</div>`;
 
   const vid = song.videoId;
   const sameSong = () => Player.current && Player.current.videoId === vid;
@@ -1460,8 +1506,8 @@ async function loadRelated(force = false) {
 
   const renderFail = () => {
     Player._relatedLoaded = false;
-    el.innerHTML = `<div class="loading-note">Couldn't load related content<br><br>
-      <button class="pill-btn" id="related-retry">${icon('i-repeat')}<span>Try again</span></button></div>`;
+    el.innerHTML = `<div class="loading-note">${tr('empty.relatedFailed')}<br><br>
+      <button class="pill-btn" id="related-retry">${icon('i-repeat')}<span>${tr('empty.retry')}</span></button></div>`;
     const rb = $('#related-retry', el);
     if (rb) rb.addEventListener('click', () => loadRelated(true));
   };
@@ -1546,9 +1592,9 @@ function clickDownload(href, name) {
 }
 async function downloadSong(song) {
   if (!song || !song.videoId) return;
-  if (activeDownloads.has(song.videoId)) { toast('Already downloading this song…'); return; }
+  if (activeDownloads.has(song.videoId)) { toast(tr('toast.alreadyDownloading')); return; }
   activeDownloads.add(song.videoId);
-  toast(`Preparing "${song.title}" (320kbps MP3)…`);
+  toast(tr('toast.preparing', { title: song.title }));
   try {
     const st = await api(`/api/download-start?videoId=${encodeURIComponent(song.videoId)}`);
     if (!st.progressUrl) throw new Error('no progress url');
@@ -1563,12 +1609,12 @@ async function downloadSong(song) {
         const pct = Math.min(99, raw > 100 ? Math.round(raw / 10) : Math.round(raw));
         if (pct !== lastProg) {
           lastProg = pct;
-          toast(pct <= 5 && p.text ? String(p.text) : `Converting "${song.title}"… ${pct}%`);
+          toast(tr('toast.converting', { title: song.title, pct }));
         }
       } catch {}
     }
     if (!url) throw new Error('timeout');
-    toast(`Downloading "${song.title}"…`);
+    toast(tr('toast.downloading', { title: song.title }));
     const name = downloadFilename(song);
     /* Dulu berkasnya diambil dulu jadi satu kesatuan supaya bisa disimpan
        dengan nama yang benar. Server pengonversinya menolak permintaan lintas
@@ -1576,9 +1622,9 @@ async function downloadSong(song) {
        jatuh ke cadangan di bawahnya. Sekarang langsung saja, tanpa permintaan
        yang sudah dipastikan gagal. */
     clickDownload(url, name);
-    toast('Download started');
+    toast(tr('toast.downloadStarted'));
   } catch (e) {
-    toast('Download failed — try again later');
+    toast(tr('toast.downloadFailed'));
   } finally {
     activeDownloads.delete(song.videoId);
   }
@@ -1653,16 +1699,16 @@ function trackRowHTML(it, playing = false, extraBtn = '') {
     ${coverHTML(it.thumbnail, 'track')}
     <div class="tmeta"><div class="tt">${esc(displayTitle(it.title))}</div><div class="ts">${esc(it.artist || it.subtitle || '')}</div></div>
     <span class="tdur">${it.duration ? esc(it.duration) : '<span class="tdur-none">–</span>'}</span>
-    <button class="tbtn btn-fav" title="Favorite">${icon(Library.isFav(it.videoId) ? 'i-heart-f' : 'i-heart-o')}</button>
-    <button class="tbtn btn-queue" title="Add to queue">${icon('i-queue')}</button>
-    <button class="tbtn btn-addpl" title="Add to playlist">${icon('i-plus')}</button>
-    <button class="tbtn btn-dl" title="Download">${icon('i-download')}</button>
-    <button class="tbtn btn-more" title="More">${icon('i-more')}</button>
+    <button class="tbtn btn-fav" title="${tr('player.favorite')}">${icon(Library.isFav(it.videoId) ? 'i-heart-f' : 'i-heart-o')}</button>
+    <button class="tbtn btn-queue" title="${tr('player.addToQueue')}">${icon('i-queue')}</button>
+    <button class="tbtn btn-addpl" title="${tr('modal.addToPlaylist')}">${icon('i-plus')}</button>
+    <button class="tbtn btn-dl" title="${tr('player.download')}">${icon('i-download')}</button>
+    <button class="tbtn btn-more" title="${tr('player.more')}">${icon('i-more')}</button>
     ${extraBtn}
   </div>`;
 }
 function trackHeadHTML() {
-  return `<div class="track-head" aria-hidden="true"><span class="th-n">#</span><span class="th-t">Title</span><span class="th-d">Time</span></div>`;
+  return `<div class="track-head" aria-hidden="true"><span class="th-n">#</span><span class="th-t">${tr('col.title')}</span><span class="th-d">${tr('col.time')}</span></div>`;
 }
 function quickCardHTML(it) {
   return `<button class="quick-card" data-item='${esc(JSON.stringify(it))}'>
@@ -1673,9 +1719,9 @@ function quickCardHTML(it) {
 }
 function carouselHTML(inner) {
   return `<div class="carousel-wrap">
-    <button type="button" class="car-btn car-prev" aria-label="Scroll left">${icon('i-back')}</button>
+    <button type="button" class="car-btn car-prev" aria-label="${tr('misc.scrollLeft')}">${icon('i-back')}</button>
     <div class="carousel">${inner}</div>
-    <button type="button" class="car-btn car-next" aria-label="Scroll right">${icon('i-fwd')}</button>
+    <button type="button" class="car-btn car-next" aria-label="${tr('misc.scrollRight')}">${icon('i-fwd')}</button>
   </div>`;
 }
 function emptyHTML(title, sub, opts = {}) {
@@ -1694,7 +1740,7 @@ function likedCardHTML() {
   const n = Library.favorites.length;
   return `<div class="card liked-card" data-nav="#/library/favorites">
     <div class="art liked-cover">${icon('i-heart-f', 'ic liked-heart')}<div class="play-ov">${icon('i-play')}</div></div>
-    <div class="t">Liked Songs</div>
+    <div class="t">${tr('nav.likedSongs')}</div>
     <div class="s">${n} song${n === 1 ? '' : 's'}</div>
   </div>`;
 }
@@ -1817,16 +1863,16 @@ function openSongNowPlaying(song) {
 
 /* ================= router / views ================= */
 const NAV = [
-  { id: 'home', label: 'Home', icon: 'i-home-o', iconActive: 'i-home', hash: '#/home' },
-  { id: 'search', label: 'Search', icon: 'i-search', iconActive: 'i-search', hash: '#/search' },
-  { id: 'charts', label: 'Charts', icon: 'i-chart', iconActive: 'i-chart', hash: '#/charts' },
-  { id: 'library', label: 'Your Library', icon: 'i-library', iconActive: 'i-library', hash: '#/library' },
+  { id: 'home', key: 'nav.home', icon: 'i-home-o', iconActive: 'i-home', hash: '#/home' },
+  { id: 'search', key: 'nav.search', icon: 'i-search', iconActive: 'i-search', hash: '#/search' },
+  { id: 'charts', key: 'nav.charts', icon: 'i-chart', iconActive: 'i-chart', hash: '#/charts' },
+  { id: 'library', key: 'nav.library', icon: 'i-library', iconActive: 'i-library', hash: '#/library' },
 ];
 function renderNav() {
-  const html = NAV.map((n) => `<button class="nav-item" data-id="${n.id}" data-ic="${n.icon}" data-ica="${n.iconActive}" onclick="location.hash='${n.hash}'"><svg class="ic"><use href="#${n.icon}"/></svg><span>${n.label}</span></button>`).join('');
+  const html = NAV.map((n) => `<button class="nav-item" data-id="${n.id}" data-ic="${n.icon}" data-ica="${n.iconActive}" onclick="location.hash='${n.hash}'"><svg class="ic"><use href="#${n.icon}"/></svg><span>${tr(n.key)}</span></button>`).join('');
   // desktop sidebar: only Home + Search; library lives in its own section
   $('#nav-desktop').innerHTML = NAV.filter((n) => ['home', 'search', 'charts'].includes(n.id))
-    .map((n) => `<button class="nav-item" data-id="${n.id}" data-ic="${n.icon}" data-ica="${n.iconActive}" onclick="location.hash='${n.hash}'"><svg class="ic"><use href="#${n.icon}"/></svg><span>${n.label}</span></button>`).join('');
+    .map((n) => `<button class="nav-item" data-id="${n.id}" data-ic="${n.icon}" data-ica="${n.iconActive}" onclick="location.hash='${n.hash}'"><svg class="ic"><use href="#${n.icon}"/></svg><span>${tr(n.key)}</span></button>`).join('');
   $('#nav-mobile').innerHTML = html;
   renderSidebarLibrary();
 }
@@ -1852,7 +1898,7 @@ function renderSidebarLibrary() {
   if (favs.length) {
     html += `<button class="lib-row" data-nav="#/library/favorites">
       <span class="lib-ph liked-ph">${icon('i-heart-f')}</span>
-      <span class="lr-meta"><span class="lr-t">Liked Songs</span><br><span class="lr-s">Playlist · ${favs.length} song${favs.length === 1 ? '' : 's'}</span></span>
+      <span class="lr-meta"><span class="lr-t">${tr('nav.likedSongs')}</span><br><span class="lr-s">${tr('player.playlist')} · ${tr('misc.songs', { n: favs.length })}</span></span>
     </button>`;
   }
   html += pls.map((p) => `<button class="lib-row" data-nav="#/localpl/${p.id}">
@@ -1863,7 +1909,7 @@ function renderSidebarLibrary() {
       ${coverHTML(it.thumbnail, 'lib')}
       <span class="lr-meta"><span class="lr-t">${esc(it.title)}</span><br><span class="lr-s">${it.type === 'artist' ? 'Artist' : it.type === 'album' ? 'Album' : 'Playlist'}</span></span>
     </button>`).join('');
-  if (!html) html = `<div class="lib-empty"><b>Your library is empty</b><br>Like songs, save albums & artists, or open Library to create a playlist</div>`;
+  if (!html) html = `<div class="lib-empty"><b>${tr('empty.libraryEmpty')}</b><br>${tr('lib.emptyHint')}</div>`;
   el.innerHTML = html;
   $$('[data-nav]', el).forEach((b) => b.addEventListener('click', () => go(b.dataset.nav)));
   $$('[data-item]', el).forEach((b) => b.addEventListener('click', () => {
@@ -1898,11 +1944,11 @@ async function route() {
     else if (parts[0] === 'localpl') { setActiveNav('library'); viewLocalPlaylist(view, parts[1]); }
     else if (parts[0] === 'song' && parts[1]) { setActiveNav('home'); await viewHome(view); openSharedSong(parts[1]); }
     else {
-      view.innerHTML = emptyHTML('Page not found', 'That link does not exist or the page was removed.', { label: 'Go home', go: '#/home', ic: 'i-search' });
+      view.innerHTML = emptyHTML(tr('empty.notFound'), tr('empty.notFound.sub'), { label: tr('empty.goHome'), go: '#/home', ic: 'i-search' });
       bindEmptyCtas(view);
     }
   } catch (e) {
-    view.innerHTML = emptyHTML('Failed to load', esc(e.message || 'Something went wrong.'), { label: 'Retry', act: 'reload', ic: 'i-note' });
+    view.innerHTML = emptyHTML(tr('empty.failed'), esc(e.message || tr('empty.failed.sub')), { label: 'Retry', act: 'reload', ic: 'i-note' });
     bindEmptyCtas(view);
   }
   view.classList.add('view-enter');
@@ -1918,7 +1964,7 @@ async function viewHome(view) {
   view.innerHTML = skeletonHTML;
   const now = new Date();
   const h = now.getHours();
-  const greet = h < 11 ? 'Good morning' : h < 16 ? 'Good afternoon' : 'Good evening';
+  const greet = tr(h < 11 ? 'home.morning' : h < 16 ? 'home.afternoon' : 'home.evening');
   applyTint(greet);
   const d = await api('/api/home');
   const hist = Library.history.slice(0, 16);
@@ -1928,26 +1974,26 @@ async function viewHome(view) {
   const dateLine = now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
   let html = `<div class="hello-row"><div><div class="greeting">${esc(dateLine)}</div><h1 class="page-title">${greet}</h1></div></div>`;
   if (hist.length) {
-    html += `<div class="shelf-title">Recently played</div><div class="quick-grid">${hist.slice(0, 8).map((s) => quickCardHTML({ ...s, type: 'song', subtitle: s.artist })).join('')}</div>`;
+    html += `<div class="shelf-title">${tr('home.recentlyPlayed')}</div><div class="quick-grid">${hist.slice(0, 8).map((s) => quickCardHTML({ ...s, type: 'song', subtitle: s.artist })).join('')}</div>`;
   }
   html += `<div id="mix-slot"></div>`;
   if (hist.length > 8) {
-    html += `<div class="shelf"><div class="shelf-title">Jump back in</div>${carouselHTML(hist
+    html += `<div class="shelf"><div class="shelf-title">${tr('home.jumpBackIn')}</div>${carouselHTML(hist
       .slice(8).map((s) => cardHTML({ ...s, type: 'song', subtitle: s.artist })).join(''))}</div>`;
   }
   if (favs.length) {
-    html += `<div class="shelf"><div class="shelf-title">Liked songs</div>
+    html += `<div class="shelf"><div class="shelf-title">${tr('lib.liked')}</div>
       ${carouselHTML(favs.map((s) => cardHTML({ ...s, type: 'song', subtitle: s.artist })).join(''))}</div>`;
   }
   if (pls.length) {
-    html += `<div class="shelf"><div class="shelf-title">Your playlists</div>
+    html += `<div class="shelf"><div class="shelf-title">${tr('nav.yourPlaylists')}</div>
       ${carouselHTML(pls.map((p) => `<div class="card" data-pl="${esc(p.id)}">
         <div class="art">${coverHTML(p.tracks[0] && p.tracks[0].thumbnail)}<div class="play-ov">${icon('i-play')}</div></div>
         <div class="t">${esc(p.name)}</div><div class="s">${p.tracks.length} song${p.tracks.length === 1 ? '' : 's'}</div>
       </div>`).join(''))}</div>`;
   }
   if (saved.length) {
-    html += `<div class="shelf"><div class="shelf-title">Saved</div>
+    html += `<div class="shelf"><div class="shelf-title">${tr('lib.saved')}</div>
       ${carouselHTML(saved.map(cardHTML).join(''))}</div>`;
   }
   html += d.sections.map(shelfHTML).join('');
@@ -2008,7 +2054,7 @@ function topResultHTML(it) {
   return `<button type="button" class="sr-top ${kind}" data-item='${esc(JSON.stringify(it))}'>
     ${coverHTML(it.thumbnail, 'sr')}
     <div class="sr-meta">
-      <div class="sr-kicker">Top result</div>
+      <div class="sr-kicker">${tr('search.topResult')}</div>
       <div class="sr-title">${esc(displayTitle(it.title) || it.title)}</div>
       <div class="sr-sub">${esc(it.subtitle || it.artist || '')}</div>
       <span class="pill-btn primary">${icon(ic)}<span>${cta}</span></span>
@@ -2017,7 +2063,7 @@ function topResultHTML(it) {
 }
 function searchResultsHTML(sections) {
   if (!sections || !sections.length) {
-    return emptyHTML('No results', 'Try a different spelling or another artist, song, or playlist.', { ic: 'i-search' });
+    return emptyHTML(tr('empty.noResults'), tr('empty.noResults.sub'), { ic: 'i-search' });
   }
   let html = '';
   const leftover = [];
@@ -2052,7 +2098,7 @@ function searchResultsHTML(sections) {
       ? `<div class="shelf"><div class="shelf-title">${title}</div><div class="track-list">${items.map((i) => trackRowHTML(i)).join('')}</div></div>`
       : `<div class="shelf"><div class="shelf-title">${title}</div>${carouselHTML(items.map(cardHTML).join(''))}</div>`;
   });
-  return html || emptyHTML('No results', 'Try a different spelling or another artist, song, or playlist.', { ic: 'i-search' });
+  return html || emptyHTML(tr('empty.noResults'), tr('empty.noResults.sub'), { ic: 'i-search' });
 }
 function relatedSectionsHTML(sections) {
   return (sections || []).map((sec) => {
@@ -2069,11 +2115,11 @@ function relatedSectionsHTML(sections) {
 function recentSearchHTML() {
   const rec = store.get('srec', []).filter(Boolean).slice(0, 8);
   if (!rec.length) return '';
-  return `<div class="shelf-title recent-head"><span>Recent searches</span>
-    <button type="button" class="q-clear" id="srec-clear">Clear</button></div>
+  return `<div class="shelf-title recent-head"><span>${tr('search.recent')}</span>
+    <button type="button" class="q-clear" id="srec-clear">${tr('misc.clear')}</button></div>
     <div class="recent-row">${rec.map((qq) => `<span class="recent-chip">
       <button type="button" class="recent-go" data-q="${esc(qq)}">${icon('i-clock')}<span>${esc(qq)}</span></button>
-      <button type="button" class="recent-x" data-rm="${esc(qq)}" title="Remove">${icon('i-x')}</button>
+      <button type="button" class="recent-x" data-rm="${esc(qq)}" title="${tr('misc.remove')}">${icon('i-x')}</button>
     </span>`).join('')}</div>`;
 }
 function bindSearchChrome(view, q, filter) {
@@ -2179,13 +2225,13 @@ async function viewSearch(view, q = '', filter = null) {
   const filters = ['all', 'songs', 'videos', 'albums', 'artists', 'playlists'];
   const hist = !q ? Library.history.slice(0, 6) : [];
   view.innerHTML = `
-    ${q ? '' : '<div class="page-title">Search</div>'}
-    <div class="search-bar${q ? ' has-q' : ''}">${icon('i-search', 'ic search-ic')}<input id="search-input" placeholder="What do you want to play?" value="${esc(q)}" autocomplete="off" spellcheck="false"><button type="button" class="search-clear" id="search-clear" title="Clear">${icon('i-x')}</button></div>
+    ${q ? '' : `<div class="page-title">${tr('nav.search')}</div>`}
+    <div class="search-bar${q ? ' has-q' : ''}">${icon('i-search', 'ic search-ic')}<input id="search-input" placeholder="${tr('search.placeholder')}" value="${esc(q)}" autocomplete="off" spellcheck="false"><button type="button" class="search-clear" id="search-clear" title="${tr('misc.clear')}">${icon('i-x')}</button></div>
     <div class="suggest" id="suggest"></div>
     ${q ? `<div class="search-chips">${filters.map((f) => `<button type="button" class="chip ${((filter || 'all') === f) ? 'active' : ''}" data-f="${f}">${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}</div>` : recentSearchHTML()}
     <div id="search-results">${q
-      ? '<div class="loading-note">Searching…</div>'
-      : `${hist.length ? `<div class="shelf"><div class="shelf-title">Recently played</div><div class="track-list">${hist.map((s) => trackRowHTML({ ...s, subtitle: s.artist })).join('')}</div></div>` : ''}<div id="browse-all"><div class="shelf-title">Browse all</div><div class="mood-grid" id="browse-grid"><div class="loading-note">Loading…</div></div></div>`}</div>`;
+      ? `<div class="loading-note">${tr('search.searching')}</div>`
+      : `${hist.length ? `<div class="shelf"><div class="shelf-title">${tr('home.recentlyPlayed')}</div><div class="track-list">${hist.map((s) => trackRowHTML({ ...s, subtitle: s.artist })).join('')}</div></div>` : ''}<div id="browse-all"><div class="shelf-title">${tr('home.browseAll')}</div><div class="mood-grid" id="browse-grid"><div class="loading-note">Loading…</div></div></div>`}</div>`;
   bindSearchChrome(view, q, filter);
   if (!q) bindItems($('#search-results'));
   if (!q) {
@@ -2198,7 +2244,7 @@ async function viewSearch(view, q = '', filter = null) {
       }
     } catch {
       const grid = $('#browse-grid');
-      if (grid) grid.innerHTML = emptyHTML('Could not load moods', 'Check your connection and try again.', { label: 'Retry', go: '#/search', ic: 'i-search' });
+      if (grid) grid.innerHTML = emptyHTML(tr('empty.moods'), tr('empty.moods.sub'), { label: tr('empty.retry'), go: '#/search', ic: 'i-search' });
     }
     return;
   }
@@ -2211,7 +2257,7 @@ async function viewSearch(view, q = '', filter = null) {
     bindItems(res);
   } catch (e) {
     const res = $('#search-results');
-    if (res) res.innerHTML = emptyHTML('Search failed', esc(e.message || 'Try again in a moment.'), { label: 'Retry', go: `#/search/${encodeURIComponent(q)}`, ic: 'i-search' });
+    if (res) res.innerHTML = emptyHTML(tr('empty.searchFailed'), esc(e.message || tr('empty.searchFailed.sub')), { label: 'Retry', go: `#/search/${encodeURIComponent(q)}`, ic: 'i-search' });
   }
 }
 
@@ -2230,8 +2276,8 @@ async function viewCharts(view) {
       body += shelfHTML(sec);
     }
   });
-  view.innerHTML = `<div class="hello-row"><div><div class="greeting">${esc(dateLine)}</div><h1 class="page-title">Charts</h1></div></div>`
-    + (body || emptyHTML('No charts right now', 'Try again in a moment.', { label: 'Retry', go: '#/charts', ic: 'i-chart' }));
+  view.innerHTML = `<div class="hello-row"><div><div class="greeting">${esc(dateLine)}</div><h1 class="page-title">${tr('nav.charts')}</h1></div></div>`
+    + (body || emptyHTML(tr('empty.charts'), tr('empty.charts.sub'), { label: tr('empty.retry'), go: '#/charts', ic: 'i-chart' }));
   bindItems(view);
 }
 
@@ -2240,9 +2286,9 @@ const MOOD_COLORS = ['#2f5fc0','#3b8fd4','#2a7f8f','#4d8df0','#35b4c4','#4a63b8'
 
 /* ---- Moods ---- */
 async function viewMoods(view) {
-  view.innerHTML = `<div class="page-title">Moods & genres</div><div class="loading-note">Loading…</div>`;
+  view.innerHTML = `<div class="page-title">${tr('home.moods')}</div><div class="loading-note">Loading…</div>`;
   const d = await api('/api/moods');
-  view.innerHTML = `<div class="page-title">Moods & genres</div>
+  view.innerHTML = `<div class="page-title">${tr('home.moods')}</div>
     <div class="mood-grid">${d.categories.map(moodCardHTML).join('')}</div>`;
   bindMoods(view);
 }
@@ -2263,20 +2309,20 @@ function viewStats(view) {
   const topSongs = [...rows].sort((x, y) => y.plays - x.plays).slice(0, 20);
   const maxA = topArtists[0] ? topArtists[0][1] : 1;
   view.innerHTML = `<div class="hello-row"><div>
-      <div class="greeting">This device only</div>
-      <h1 class="page-title">Listening stats</h1>
+      <div class="greeting">${tr('lib.thisDeviceOnly')}</div>
+      <h1 class="page-title">${tr('lib.stats')}</h1>
     </div></div>
     <div class="stats-cards">
-      <div class="stat-card"><div class="stat-num">${totalPlays}</div><div class="stat-lbl">Total plays</div></div>
-      <div class="stat-card"><div class="stat-num">${totalMin}</div><div class="stat-lbl">Minutes listened</div></div>
-      <div class="stat-card"><div class="stat-num">${rows.length}</div><div class="stat-lbl">Unique songs</div></div>
-      <div class="stat-card"><div class="stat-num">${Object.keys(byArtist).length}</div><div class="stat-lbl">Artists</div></div>
+      <div class="stat-card"><div class="stat-num">${totalPlays}</div><div class="stat-lbl">${tr('stats.plays')}</div></div>
+      <div class="stat-card"><div class="stat-num">${totalMin}</div><div class="stat-lbl">${tr('stats.minutes')}</div></div>
+      <div class="stat-card"><div class="stat-num">${rows.length}</div><div class="stat-lbl">${tr('stats.unique')}</div></div>
+      <div class="stat-card"><div class="stat-num">${Object.keys(byArtist).length}</div><div class="stat-lbl">${tr('stats.artists')}</div></div>
     </div>
-    ${topArtists.length ? `<div class="shelf"><div class="shelf-title">Top artists</div>
+    ${topArtists.length ? `<div class="shelf"><div class="shelf-title">${tr('stats.topArtists')}</div>
       ${topArtists.map(([a, n], i) => `<div class="stat-bar-row"><span class="sb-rank">${i + 1}</span><span class="sb-name">${esc(a)}</span><div class="sb-bar"><div style="width:${(n / maxA) * 100}%"></div></div><span class="sb-n">${n}</span></div>`).join('')}</div>` : ''}
-    ${topSongs.length ? `<div class="shelf"><div class="shelf-title">Most played</div>${trackHeadHTML()}<div class="track-list">
+    ${topSongs.length ? `<div class="shelf"><div class="shelf-title">${tr('stats.mostPlayed')}</div>${trackHeadHTML()}<div class="track-list">
       ${topSongs.map((r, i) => trackRowHTML({ videoId: r.videoId, title: r.title, subtitle: `${r.artist} · ${r.plays} plays · ${Math.round(r.secs / 60)} min`, thumbnail: r.thumbnail, tn: i + 1 })).join('')}</div></div>` : ''}
-    ${!rows.length ? emptyHTML('No stats yet', 'Play some music — totals build up as you listen.', { label: 'Browse home', go: '#/home', ic: 'i-chart' }) : ''}`;
+    ${!rows.length ? emptyHTML(tr('empty.stats'), tr('empty.stats.sub'), { label: tr('empty.browseHome'), go: '#/home', ic: 'i-chart' }) : ''}`;
   bindItems(view);
 }
 
@@ -2284,7 +2330,7 @@ function viewStats(view) {
 
 /* ---- Library ---- */
 function viewLibrary(view, tab) {
-  const tabs = [['playlists', 'Playlists'], ['favorites', 'Favorites'], ['saved', 'Saved'], ['history', 'History'], ['stats', 'Stats']];
+  const tabs = [['playlists', tr('lib.playlists')], ['favorites', tr('lib.favorites')], ['saved', tr('lib.saved')], ['history', tr('lib.historyTab')], ['stats', tr('lib.statsTab')]];
   // location.replace, bukan location.hash: pengalihan ini tidak boleh
   // meninggalkan langkah riwayatnya sendiri, atau tombol back akan kembali
   // ke sini lalu dialihkan maju lagi, dan terlihat seperti tidak berfungsi
@@ -2293,33 +2339,33 @@ function viewLibrary(view, tab) {
   if (tab === 'favorites') {
     const f = Library.favorites;
     body = f.length
-      ? `<div class="lib-actions"><button class="pill-btn primary" id="fav-play">${icon('i-play')}<span>Play all</span></button> <button class="pill-btn" id="fav-shuffle">${icon('i-shuffle')}<span>Shuffle</span></button></div>
+      ? `<div class="lib-actions"><button class="pill-btn primary" id="fav-play">${icon('i-play')}<span>${tr('player.playAll')}</span></button> <button class="pill-btn" id="fav-shuffle">${icon('i-shuffle')}<span>${tr('player.shuffle')}</span></button></div>
          ${trackHeadHTML()}<div class="track-list">${f.map((s, i) => trackRowHTML({ ...s, subtitle: s.artist, tn: i + 1 })).join('')}</div>`
-      : emptyHTML('No liked songs yet', 'Tap the heart on any song to save it here.', { label: 'Find songs', go: '#/search', ic: 'i-heart-o' });
+      : emptyHTML(tr('empty.liked'), tr('empty.liked.sub'), { label: tr('empty.findSongs'), go: '#/search', ic: 'i-heart-o' });
   } else if (tab === 'history') {
     const h = Library.history;
     body = h.length
       ? `${trackHeadHTML()}<div class="track-list">${h.map((s, i) => trackRowHTML({ ...s, subtitle: s.artist, tn: i + 1 })).join('')}</div>`
-      : emptyHTML('Nothing played yet', 'Songs you play will show up here.', { label: 'Browse home', go: '#/home', ic: 'i-clock' });
+      : emptyHTML(tr('empty.history'), tr('empty.history.sub'), { label: tr('empty.browseHome'), go: '#/home', ic: 'i-clock' });
   } else if (tab === 'saved') {
     const sv = Library.saved;
     body = sv.length
       ? `<div class="lib-grid">${sv.map(cardHTML).join('')}</div>`
-      : emptyHTML('Nothing saved yet', 'Open any album, playlist or artist and tap Save.', { label: 'Browse moods', go: '#/moods', ic: 'i-save' });
+      : emptyHTML(tr('empty.saved'), tr('empty.saved.sub'), { label: tr('empty.browseMoods'), go: '#/moods', ic: 'i-save' });
   } else {
     const pls = Library.playlists;
     body = `<div class="lib-actions">
-        <button class="pill-btn primary" id="btn-newpl">${icon('i-plus')}<span>New playlist</span></button>
-        <button class="pill-btn" id="btn-import">${icon('i-download')}<span>Import from YT Music</span></button>
-        <button class="pill-btn" id="btn-backup">${icon('i-download')}<span>Backup</span></button>
-        <button class="pill-btn" id="btn-restore">${icon('i-upload')}<span>Restore</span></button>
+        <button class="pill-btn primary" id="btn-newpl">${icon('i-plus')}<span>${tr('nav.newPlaylist')}</span></button>
+        <button class="pill-btn" id="btn-import">${icon('i-download')}<span>${tr('nav.importYt')}</span></button>
+        <button class="pill-btn" id="btn-backup">${icon('i-download')}<span>${tr('lib.backup')}</span></button>
+        <button class="pill-btn" id="btn-restore">${icon('i-upload')}<span>${tr('lib.restore')}</span></button>
       </div>`;
     const cards = (Library.favorites.length ? likedCardHTML() : '') + pls.map((p) => `<div class="card" data-pl="${p.id}"><div class="art">${coverHTML(p.tracks[0] && p.tracks[0].thumbnail)}<div class="play-ov">${icon('i-play')}</div></div><div class="t">${esc(p.name)}</div><div class="s">${p.tracks.length} song${p.tracks.length === 1 ? '' : 's'}</div></div>`).join('');
     body += cards
       ? `<div class="lib-grid">${cards}</div>`
-      : emptyHTML('No playlists yet', 'Use New playlist above, or import one from YouTube Music.', { ic: 'i-note' });
+      : emptyHTML(tr('empty.playlists'), tr('empty.playlists.sub'), { ic: 'i-note' });
   }
-  view.innerHTML = `<div class="page-title">Library</div>
+  view.innerHTML = `<div class="page-title">${tr('lib.title')}</div>
     <div class="chip-row">${tabs.map(([id, l]) => `<button class="chip ${tab === id ? 'active' : ''}" onclick="location.hash='#/library/${id}'">${l}</button>`).join('')}</div>${body}`;
   bindItems(view);
   const np = $('#btn-newpl');
@@ -2343,16 +2389,16 @@ function openImportForm() {
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
-  $('#modal-title').textContent = 'Import from YouTube Music';
+  $('#modal-title').textContent = tr('modal.importTitle');
   if (actions) actions.classList.add('hidden');
   body.innerHTML = `<form class="pl-form" id="im-form" autocomplete="off">
       <div class="pl-form-cover im" aria-hidden="true">${icon('i-download')}</div>
-      <label class="pl-form-label" for="im-form-url">Link</label>
+      <label class="pl-form-label" for="im-form-url">${tr('modal.link')}</label>
       <input id="im-form-url" class="pl-form-input" type="text" inputmode="url" placeholder="https://music.youtube.com/playlist?list=…" />
-      <div class="pl-form-hint">Paste a public YouTube Music playlist, album, artist, or song link.</div>
+      <div class="pl-form-hint">${tr('modal.importHint')}</div>
       <div class="pl-form-actions">
-        <button type="button" class="pill-btn" id="im-form-cancel">Cancel</button>
-        <button type="submit" class="pill-btn primary" id="im-form-go">${icon('i-download')}<span>Import</span></button>
+        <button type="button" class="pill-btn" id="im-form-cancel">${tr('modal.cancel')}</button>
+        <button type="submit" class="pill-btn primary" id="im-form-go">${icon('i-download')}<span>${tr('modal.import')}</span></button>
       </div>
     </form>`;
   const input = $('#im-form-url');
@@ -2363,13 +2409,13 @@ function openImportForm() {
       if (input) { input.focus(); input.classList.add('shake'); setTimeout(() => input.classList.remove('shake'), 400); }
       return;
     }
-    if (goBtn) { goBtn.disabled = true; goBtn.innerHTML = icon('i-download') + '<span>Importing…</span>'; }
+    if (goBtn) { goBtn.disabled = true; goBtn.innerHTML = icon('i-download') + `<span>${tr('modal.importing')}</span>`; }
     try {
       await importFromLink(url);
       closeModal();
     } catch (e) {
-      toast('Import failed: ' + (e.message || 'try again'));
-      if (goBtn) { goBtn.disabled = false; goBtn.innerHTML = icon('i-download') + '<span>Import</span>'; }
+      toast(tr('toast.importFailed', { msg: e.message || '' }));
+      if (goBtn) { goBtn.disabled = false; goBtn.innerHTML = icon('i-download') + `<span>${tr('modal.import')}</span>`; }
     }
   };
   $('#im-form').addEventListener('submit', (e) => { e.preventDefault(); submit(); });
@@ -2379,7 +2425,7 @@ function openImportForm() {
 }
 async function importFromLink(url) {
   if (!url) return;
-  toast('Resolving link…');
+  toast(tr('toast.resolving'));
   const r = await api(`/api/resolve?url=${encodeURIComponent(url)}`);
   if (r.kind === 'song') {
     let song = { videoId: r.videoId, title: 'Loading…', playlistId: r.playlistId };
@@ -2393,7 +2439,7 @@ async function importFromLink(url) {
   }
   if (r.kind === 'artist') { go(`#/artist/${r.id}`); return; }
   const d = await api(`/api/browse?id=${encodeURIComponent(r.id)}`);
-  if (!d.tracks.length) { toast('No tracks found (playlist may be private)'); return; }
+  if (!d.tracks.length) { toast(tr('toast.noTracks')); return; }
   const name = (d.header && d.header.title) || 'Imported playlist';
   const pl = Library.createPlaylist(name);
   d.tracks.forEach((t) => Library.addToPlaylist(pl.id, songFromItem(t)));
@@ -2430,7 +2476,7 @@ function backupLibrary() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
-  toast('Backup downloaded');
+  toast(tr('toast.backupDownloaded'));
 }
 function restoreLibrary() {
   const inp = document.createElement('input');
@@ -2479,12 +2525,12 @@ function restoreLibrary() {
           }
         }
         renderSidebarLibrary();
-        toast('Library restored');
+        toast(tr('toast.libraryRestored'));
         closeModal();
         route();
-      } catch (e) { toast('Restore failed: ' + e.message); }
+      } catch (e) { toast(tr('toast.restoreFailed', { msg: e.message || '' })); }
     };
-    reader.onerror = () => toast('Restore failed: could not read file');
+    reader.onerror = () => toast(tr('toast.restoreUnreadable'));
     reader.readAsText(f);
   };
   inp.click();
@@ -2492,7 +2538,7 @@ function restoreLibrary() {
 function viewLocalPlaylist(view, pid) {
   const pl = Library.playlists.find((p) => p.id === pid);
   if (!pl) {
-    view.innerHTML = emptyHTML('Playlist not found', 'It may have been deleted.', { label: 'Your Library', go: '#/library', ic: 'i-library' });
+    view.innerHTML = emptyHTML(tr('empty.playlistGone'), tr('empty.playlistGone.sub'), { label: tr('empty.yourLibrary'), go: '#/library', ic: 'i-library' });
     bindEmptyCtas(view);
     return;
   }
@@ -2500,23 +2546,23 @@ function viewLocalPlaylist(view, pid) {
     const up = i === 0 ? ' disabled' : '';
     const dn = i === pl.tracks.length - 1 ? ' disabled' : '';
     return trackRowHTML({ ...s, subtitle: s.artist, plId: pid, plIndex: i, tn: i + 1 }, false,
-      `<button class="tbtn btn-qup" data-i="${i}" title="Move up"${up}>${icon('i-chev-up')}</button>` +
-      `<button class="tbtn btn-qdn" data-i="${i}" title="Move down"${dn}>${icon('i-chev-down')}</button>` +
-      `<button class="tbtn btn-rm" data-vid="${esc(s.videoId)}" title="Remove">${icon('i-x')}</button>`);
+      `<button class="tbtn btn-qup" data-i="${i}" title="${tr('misc.moveUp')}"${up}>${icon('i-chev-up')}</button>` +
+      `<button class="tbtn btn-qdn" data-i="${i}" title="${tr('misc.moveDown')}"${dn}>${icon('i-chev-down')}</button>` +
+      `<button class="tbtn btn-rm" data-vid="${esc(s.videoId)}" title="${tr('misc.remove')}">${icon('i-x')}</button>`);
   }).join('');
   const cover = safeCover(pl.tracks[0] && pl.tracks[0].thumbnail)
     ? `<img src="${esc(pl.tracks[0].thumbnail)}" alt="">`
     : `<div class="detail-ph">${icon('i-note')}</div>`;
   view.innerHTML = `<div class="detail-head">
       ${cover}
-      <div class="detail-info"><div class="detail-kicker">Playlist</div><h1>${esc(pl.name)}</h1><div class="sub">${pl.tracks.length} song${pl.tracks.length === 1 ? '' : 's'} · Local playlist</div>
+      <div class="detail-info"><div class="detail-kicker">${tr('player.playlist')}</div><h1>${esc(pl.name)}</h1><div class="sub">${tr('misc.songs', { n: pl.tracks.length })} · ${tr('pl.local')}</div>
       <div class="detail-actions">
-        <button class="pill-btn primary" id="pl-play">${icon('i-play')}<span>Play</span></button>
-        <button class="pill-btn" id="pl-shuffle">${icon('i-shuffle')}<span>Shuffle</span></button>
-        <button class="pill-btn" id="pl-rename">${icon('i-note')}<span>Rename</span></button>
-        <button class="pill-btn" id="pl-del">${icon('i-trash')}<span>Delete</span></button>
+        <button class="pill-btn primary" id="pl-play">${icon('i-play')}<span>${tr('player.play')}</span></button>
+        <button class="pill-btn" id="pl-shuffle">${icon('i-shuffle')}<span>${tr('player.shuffle')}</span></button>
+        <button class="pill-btn" id="pl-rename">${icon('i-note')}<span>${tr('modal.rename')}</span></button>
+        <button class="pill-btn" id="pl-del">${icon('i-trash')}<span>${tr('modal.delete')}</span></button>
       </div></div></div>
-    ${rows ? trackHeadHTML() + `<div class="track-list">${rows}</div>` : emptyHTML('This playlist is empty', 'Open any song and tap Playlist to add it here.', { label: 'Find songs', go: '#/search', ic: 'i-note' })}`;
+    ${rows ? trackHeadHTML() + `<div class="track-list">${rows}</div>` : emptyHTML(tr('empty.playlistEmpty'), tr('empty.playlistEmpty.sub'), { label: tr('empty.findSongs'), go: '#/search', ic: 'i-note' })}`;
   bindItems(view);
   $$('.btn-rm', view).forEach((b) => b.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2582,8 +2628,8 @@ async function viewBrowse(view, id, kind, extraParams) {
       <div class="detail-info"><div class="detail-kicker">${kick}</div><h1>${esc(h.title)}</h1>
         <div class="sub">${esc([h.strapline, h.subtitle].filter(Boolean).join(' • '))}${h.description ? `<br><span style="font-size:12.5px">${esc(h.description.slice(0, 260))}${h.description.length > 260 ? '…' : ''}</span>` : ''}</div>
         <div class="detail-actions">
-          ${d.tracks.length ? `<button class="pill-btn primary" id="br-play">${icon('i-play')}<span>Play</span></button><button class="pill-btn" id="br-shuffle">${icon('i-shuffle')}<span>Shuffle</span></button>` : ''}
-          <button class="pill-btn" id="br-save">${icon(Library.isSaved(id) ? 'i-save-f' : 'i-save')}<span>${Library.isSaved(id) ? 'Saved' : 'Save'}</span></button>
+          ${d.tracks.length ? `<button class="pill-btn primary" id="br-play">${icon('i-play')}<span>${tr('player.play')}</span></button><button class="pill-btn" id="br-shuffle">${icon('i-shuffle')}<span>${tr('player.shuffle')}</span></button>` : ''}
+          <button class="pill-btn" id="br-save">${icon(Library.isSaved(id) ? 'i-save-f' : 'i-save')}<span>${tr(Library.isSaved(id) ? 'lib.saved.done' : 'lib.save')}</span></button>
         </div>
       </div></div>`;
   }
@@ -2604,7 +2650,7 @@ async function viewBrowse(view, id, kind, extraParams) {
     }).join('')}</div>`;
   }
   html += (d.sections || []).map(shelfHTML).join('');
-  view.innerHTML = html || emptyHTML('Nothing here', 'This page has no songs or related albums yet.', { label: 'Go home', go: '#/home', ic: 'i-note' });
+  view.innerHTML = html || emptyHTML(tr('empty.nothingHere'), tr('empty.nothingHere.sub'), { label: tr('empty.goHome'), go: '#/home', ic: 'i-note' });
   bindItems(view);
   const toSongs = () => d.tracks.map((t) => ({ ...songFromItem(t), thumbnail: t.thumbnail || h.thumbnail }));
   const bp = $('#br-play');
@@ -2618,7 +2664,7 @@ async function viewBrowse(view, id, kind, extraParams) {
       browseType: kind, browseId: id,
       title: h.title, subtitle: h.subtitle || '', thumbnail: h.thumbnail,
     });
-    bsv.innerHTML = icon(Library.isSaved(id) ? 'i-save-f' : 'i-save') + `<span>${Library.isSaved(id) ? 'Saved' : 'Save'}</span>`;
+    bsv.innerHTML = icon(Library.isSaved(id) ? 'i-save-f' : 'i-save') + `<span>${tr(Library.isSaved(id) ? 'lib.saved.done' : 'lib.save')}</span>`;
   });
   // playing track highlight handled implicitly on rerender
 }
@@ -2630,7 +2676,7 @@ function openSongMenu(song, opts = {}) {
   const body = $('#modal-body');
   const actions = $('.modal-actions');
   if (actions) actions.classList.remove('hidden');
-  $('#modal-title').textContent = displayTitle(song.title) || 'Song';
+  $('#modal-title').textContent = displayTitle(song.title) || tr('modal.song');
   const liked = Library.isFav(song.videoId);
   const qi = opts.qi;
   const inUserQ = Number.isFinite(qi) && qi > Player.index && Player.queue[qi] && Player.queue[qi]._user;
@@ -2650,9 +2696,9 @@ function openSongMenu(song, opts = {}) {
     ${row('queue', 'i-queue', 'Add to queue')}
     ${row('fav', liked ? 'i-heart-f' : 'i-heart-o', liked ? 'Favorited' : 'Favorite')}
     ${row('pl', 'i-plus', 'Add to playlist')}
-    ${row('dl', 'i-download', 'Download')}
-    ${row('share', 'i-share', 'Share')}
-    ${row('artist', 'i-search', 'Go to artist')}
+    ${row('dl', 'i-download', tr('player.download'))}
+    ${row('share', 'i-share', tr('player.share'))}
+    ${row('artist', 'i-search', tr('misc.goToArtist'))}
     ${inUserQ ? `${row('up', 'i-chev-up', 'Move up', isFirst)}${row('dn', 'i-chev-down', 'Move down', isLast)}${row('rm', 'i-x', 'Remove from queue')}` : ''}
     ${inPl ? `${row('plup', 'i-chev-up', 'Move up', isPlFirst)}${row('pldn', 'i-chev-down', 'Move down', isPlLast)}${row('plrm', 'i-x', 'Remove from playlist')}` : ''}`;
   $$('[data-act]', body).forEach((b) => b.addEventListener('click', () => {
@@ -2683,17 +2729,17 @@ function openNowPlayingMore() {
   const body = $('#modal-body');
   const actions = $('.modal-actions');
   if (actions) actions.classList.remove('hidden');
-  $('#modal-title').textContent = displayTitle(song.title) || 'More';
+  $('#modal-title').textContent = displayTitle(song.title) || tr('modal.more');
   const row = (act, ic, label, on) =>
     `<button type="button" class="modal-row${on ? ' on' : ''}" data-npact="${act}">${icon(ic)}<span>${label}</span></button>`;
   body.innerHTML = `
-    ${row('dl', 'i-download', 'Download')}
-    ${row('share', 'i-share', 'Share')}
-    ${row('artist', 'i-search', 'Go to artist')}
-    ${row('speed', 'i-clock', `Speed · ${Player.speed}×`)}
-    ${row('float', 'i-pip', Player.floatOn ? 'Widget on' : 'Widget')}
-    ${row('quality', 'i-expand', Player.hq ? 'Quality · Max' : 'Quality · YouTube Music')}
-    ${row('sb', 'i-next', Player.sbEnabled ? 'SponsorBlock on' : 'SponsorBlock')}`;
+    ${row('dl', 'i-download', tr('player.download'))}
+    ${row('share', 'i-share', tr('player.share'))}
+    ${row('artist', 'i-search', tr('misc.goToArtist'))}
+    ${row('speed', 'i-clock', tr('more.speed', { n: Player.speed }))}
+    ${row('float', 'i-pip', Player.floatOn ? tr('more.widgetOn') : tr('player.widget'))}
+    ${row('quality', 'i-expand', tr(Player.hq ? 'more.qualityMax' : 'more.qualityYtm'))}
+    ${row('sb', 'i-next', tr(Player.sbEnabled ? 'more.sbOn' : 'more.sb'))}`;
   $$('[data-npact]', body).forEach((b) => b.addEventListener('click', () => {
     const a = b.dataset.npact;
     if (a === 'dl') downloadSong(song);
@@ -2761,7 +2807,7 @@ async function shareSong(song) {
       const ta = document.createElement('textarea');
       ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
     }
-    toast('Link copied');
+    toast(tr('toast.linkCopied'));
   } catch {
     toast(url);
   }
@@ -2770,20 +2816,20 @@ function openSleepTimer() {
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
-  $('#modal-title').textContent = 'Sleep timer';
+  $('#modal-title').textContent = tr('modal.sleepTitle');
   if (actions) actions.classList.add('hidden');
   const active = !!Player.sleepTimer;
   body.innerHTML = `<form class="pl-form" id="sl-form">
       <div class="pl-form-cover" aria-hidden="true">${icon('i-clock')}</div>
-      <div class="pl-form-hint">${active ? 'A timer is already running. Pick a new time to replace it.' : 'Pause playback after the selected time.'}</div>
+      <div class="pl-form-hint">${tr(active ? 'modal.sleepRunning' : 'modal.sleepHint')}</div>
       <div class="pl-presets" id="sl-presets">
-        ${[15, 30, 45, 60].map((m) => `<button type="button" class="chip" data-m="${m}">${m} min</button>`).join('')}
+        ${[15, 30, 45, 60].map((m) => `<button type="button" class="chip" data-m="${m}">${tr('modal.minutes', { n: m })}</button>`).join('')}
       </div>
-      <label class="pl-form-label" for="sl-mins">Custom (minutes)</label>
-      <input id="sl-mins" class="pl-form-input" type="number" min="0" max="240" placeholder="e.g. 20" />
+      <label class="pl-form-label" for="sl-mins">${tr('modal.customMinutes')}</label>
+      <input id="sl-mins" class="pl-form-input" type="number" min="0" max="240" placeholder="${tr('modal.minutesHint')}" />
       <div class="pl-form-actions">
-        <button type="button" class="pill-btn" id="sl-cancel-timer">${active ? 'Cancel timer' : 'Close'}</button>
-        <button type="submit" class="pill-btn primary">Start</button>
+        <button type="button" class="pill-btn" id="sl-cancel-timer">${tr(active ? 'modal.cancelTimer' : 'modal.close')}</button>
+        <button type="submit" class="pill-btn primary">${tr('modal.start')}</button>
       </div>
     </form>`;
   const input = $('#sl-mins');
@@ -2797,11 +2843,11 @@ function openSleepTimer() {
         Player.yt && PB.pause();
         Player.sleepTimer = null;
         $('#np-sleep') && $('#np-sleep').classList.remove('on');
-        toast('Sleep timer: paused');
+        toast(tr('toast.sleepPaused'));
       }, m * 60000);
       $('#np-sleep') && $('#np-sleep').classList.add('on');
-      toast(`Sleeping in ${m} min`);
-    } else toast('Sleep timer cancelled');
+      toast(tr('toast.sleepIn', { n: m }));
+    } else toast(tr('toast.sleepCancelled'));
     closeModal();
   };
   $$('#sl-presets .chip').forEach((c) => c.addEventListener('click', () => start(Number(c.dataset.m))));
@@ -2822,14 +2868,14 @@ function openBackupForm() {
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
-  $('#modal-title').textContent = 'Backup library';
+  $('#modal-title').textContent = tr('modal.backupTitle');
   if (actions) actions.classList.add('hidden');
   body.innerHTML = `<div class="pl-form">
       <div class="pl-form-cover" aria-hidden="true">${icon('i-download')}</div>
-      <div class="pl-form-hint">Download a JSON file of your playlists, favorites, history, and settings. Keep it somewhere safe.</div>
+      <div class="pl-form-hint">${tr('modal.backupHint')}</div>
       <div class="pl-form-actions">
-        <button type="button" class="pill-btn" id="bk-close">Cancel</button>
-        <button type="button" class="pill-btn primary" id="bk-go">${icon('i-download')}<span>Download backup</span></button>
+        <button type="button" class="pill-btn" id="bk-close">${tr('modal.cancel')}</button>
+        <button type="button" class="pill-btn primary" id="bk-go">${icon('i-download')}<span>${tr('modal.downloadBackup')}</span></button>
       </div>
     </div>`;
   $('#bk-close').addEventListener('click', closeModal);
@@ -2840,14 +2886,14 @@ function openRestoreForm() {
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
-  $('#modal-title').textContent = 'Restore library';
+  $('#modal-title').textContent = tr('modal.restoreTitle');
   if (actions) actions.classList.add('hidden');
   body.innerHTML = `<div class="pl-form">
       <div class="pl-form-cover im" aria-hidden="true">${icon('i-upload')}</div>
-      <div class="pl-form-hint">This replaces your current library with the backup file. Playlists and favorites on this device will be overwritten.</div>
+      <div class="pl-form-hint">${tr('modal.restoreHint')}</div>
       <div class="pl-form-actions">
-        <button type="button" class="pill-btn" id="rs-close">Cancel</button>
-        <button type="button" class="pill-btn primary" id="rs-go">${icon('i-upload')}<span>Choose file</span></button>
+        <button type="button" class="pill-btn" id="rs-close">${tr('modal.cancel')}</button>
+        <button type="button" class="pill-btn primary" id="rs-go">${icon('i-upload')}<span>${tr('modal.chooseFile')}</span></button>
       </div>
     </div>`;
   $('#rs-close').addEventListener('click', closeModal);
@@ -2858,16 +2904,16 @@ function openCreatePlaylist() {
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
-  $('#modal-title').textContent = 'Create playlist';
+  $('#modal-title').textContent = tr('modal.createPlaylist');
   if (actions) actions.classList.add('hidden');
   body.innerHTML = `<form class="pl-form" id="pl-form" autocomplete="off">
       <div class="pl-form-cover" aria-hidden="true">${icon('i-note')}</div>
-      <label class="pl-form-label" for="pl-form-name">Playlist name</label>
-      <input id="pl-form-name" class="pl-form-input" type="text" maxlength="80" placeholder="My playlist" />
-      <div class="pl-form-hint">Give it a name — you can add songs anytime.</div>
+      <label class="pl-form-label" for="pl-form-name">${tr('modal.playlistName')}</label>
+      <input id="pl-form-name" class="pl-form-input" type="text" maxlength="80" placeholder="${tr('misc.myPlaylist')}" />
+      <div class="pl-form-hint">${tr('modal.createHint')}</div>
       <div class="pl-form-actions">
-        <button type="button" class="pill-btn" id="pl-form-cancel">Cancel</button>
-        <button type="submit" class="pill-btn primary" id="pl-form-create">${icon('i-plus')}<span>Create</span></button>
+        <button type="button" class="pill-btn" id="pl-form-cancel">${tr('modal.cancel')}</button>
+        <button type="submit" class="pill-btn primary" id="pl-form-create">${icon('i-plus')}<span>${tr('modal.create')}</span></button>
       </div>
     </form>`;
   const input = $('#pl-form-name');
@@ -2879,7 +2925,7 @@ function openCreatePlaylist() {
     }
     Library.createPlaylist(name);
     closeModal();
-    toast(`Created “${name}”`);
+    toast(tr('toast.created', { name }));
     if ((location.hash || '').startsWith('#/library')) route();
     else go('#/library');
   };
@@ -2894,7 +2940,7 @@ function openRenamePlaylist(pid) {
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
-  $('#modal-title').textContent = 'Rename playlist';
+  $('#modal-title').textContent = tr('modal.renamePlaylist');
   if (actions) actions.classList.add('hidden');
   body.innerHTML = `<form class="pl-form" id="rn-form" autocomplete="off">
       <div class="pl-form-cover" aria-hidden="true">${icon('i-note')}</div>
@@ -2912,7 +2958,7 @@ function openRenamePlaylist(pid) {
     if (!name) { input.classList.add('shake'); setTimeout(() => input.classList.remove('shake'), 400); return; }
     Library.renamePlaylist(pid, name);
     closeModal();
-    toast('Playlist renamed');
+    toast(tr('toast.playlistRenamed'));
     route();
   });
   $('#rn-cancel').addEventListener('click', closeModal);
@@ -2925,11 +2971,11 @@ function openDeletePlaylist(pid) {
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
-  $('#modal-title').textContent = 'Delete playlist';
+  $('#modal-title').textContent = tr('modal.deletePlaylist');
   if (actions) actions.classList.add('hidden');
   body.innerHTML = `<div class="pl-form">
       <div class="pl-form-cover im" aria-hidden="true">${icon('i-trash')}</div>
-      <div class="pl-form-hint">Delete “${esc(pl.name)}”? This can’t be undone. The songs themselves stay in YouTube Music.</div>
+      <div class="pl-form-hint">${tr('modal.deleteHint', { name: esc(pl.name) })}</div>
       <div class="pl-form-actions">
         <button type="button" class="pill-btn" id="dlpl-cancel">Cancel</button>
         <button type="button" class="pill-btn primary" id="dlpl-go">${icon('i-trash')}<span>Delete</span></button>
@@ -2939,7 +2985,7 @@ function openDeletePlaylist(pid) {
   $('#dlpl-go').addEventListener('click', () => {
     Library.deletePlaylist(pid);
     closeModal();
-    toast('Playlist deleted');
+    toast(tr('toast.playlistDeleted'));
     go('#/library');
   });
   modal.classList.remove('hidden');
@@ -2951,15 +2997,15 @@ function openAddToPlaylist(song) {
   const body = $('#modal-body');
   const actions = $('.modal-actions');
   if (actions) actions.classList.remove('hidden');
-  $('#modal-title').textContent = 'Add to playlist';
+  $('#modal-title').textContent = tr('modal.addToPlaylist');
   const render = () => {
     const pls = Library.playlists;
     body.innerHTML = `<div class="q-modal-row">
-        <button class="pill-btn" id="q-playnext">${icon('i-next')}<span>Play next</span></button>
-        <button class="pill-btn" id="q-add">${icon('i-queue')}<span>Add to queue</span></button>
+        <button class="pill-btn" id="q-playnext">${icon('i-next')}<span>${tr('player.playNext')}</span></button>
+        <button class="pill-btn" id="q-add">${icon('i-queue')}<span>${tr('player.addToQueue')}</span></button>
       </div>
-      <input id="newpl-name" placeholder="New playlist name…">
-      <button class="pill-btn primary" id="newpl-create" style="margin-bottom:12px">Create & add</button>
+      <input id="newpl-name" placeholder="${tr('misc.newPlaylistName')}">
+      <button class="pill-btn primary" id="newpl-create" style="margin-bottom:12px">${tr('modal.createAndAdd')}</button>
       ${pls.length ? `<div class="pl-list-label">Your playlists</div>` : ''}
       ${pls.map((p) => {
         const cover = p.tracks[0] && p.tracks[0].thumbnail;
@@ -2976,12 +3022,12 @@ function openAddToPlaylist(song) {
       if (!name) return;
       const pl = Library.createPlaylist(name);
       Library.addToPlaylist(pl.id, song);
-      toast(`Added to "${name}"`);
+      toast(tr('toast.addedTo', { name }));
       modal.classList.add('hidden');
     });
     $$('.modal-row', body).forEach((r) => r.addEventListener('click', () => {
       Library.addToPlaylist(r.dataset.id, song);
-      toast('Added to playlist');
+      toast(tr('toast.addedPlaylist'));
       modal.classList.add('hidden');
     }));
   };
@@ -3675,7 +3721,7 @@ async function openFloatWidget() {
   // berjalan. Player.current saja tidak cukup: antrean yang dipulihkan dari
   // simpanan sudah punya lagu tapi belum pernah diputar, dan jendelanya
   // terbuka tanpa apa pun untuk dikendalikan.
-  if (!Player.current || Player.cued) { toast('Putar lagunya dulu'); return; }
+  if (!Player.current || Player.cued) { toast(tr('toast.playFirst')); return; }
   Player.floatOn = true;
   closeNowPlaying();
   document.body.classList.add('float-mode');
@@ -3701,15 +3747,15 @@ async function openFloatWidget() {
   const sysOk = docOk ? false : await startSystemPip();
   if (docOk) {
     el.classList.add('hidden');
-    toast('Widget terpisah, tetap di atas jendela lain');
+    toast(tr('toast.widgetDoc'));
   } else if (sysOk) {
     el.classList.add('hidden');
-    toast('Widget aktif, buka aplikasi lain dan musik tetap jalan');
+    toast(tr('toast.widgetPip'));
   } else {
     el.classList.remove('hidden');
     enableDrag(el);
     bindFloatWidget(document);
-    toast('Widget melayang, geser untuk memindahkan');
+    toast(tr('toast.widgetInPage'));
   }
   syncFloatWidget();
 }
@@ -3818,19 +3864,19 @@ function panduanModeDesktop() {
   const body = $('#modal-body');
   const actions = $('.modal-actions');
   if (!modal || !body) return;
-  $('#modal-title').textContent = 'Biar musik jalan terus';
+  $('#modal-title').textContent = tr('guide.title');
   if (actions) actions.classList.add('hidden');
   body.innerHTML = `<div class="panduan">
-      <p class="panduan-kata">Browser di ponsel menghentikan musik begitu tabnya ditinggal. Satu setelan browser mematikan perilaku itu, dan cukup dinyalakan sekali.</p>
+      <p class="panduan-kata">${tr('guide.intro')}</p>
       <ol class="panduan-langkah">
-        <li>Ketuk menu tiga titik di pojok kanan atas browser</li>
-        <li>Cari <b>Situs desktop</b> atau <b>Desktop site</b></li>
-        <li>Centang, halaman ini akan memuat ulang sendiri</li>
+        <li>${tr('guide.step1')}</li>
+        <li>${tr('guide.step2')}</li>
+        <li>${tr('guide.step3')}</li>
       </ol>
-      <p class="panduan-kata">Setelah itu musik tetap jalan walau pindah aplikasi, dan tombol di bilah notifikasi berfungsi. Browser mengingat setelan ini khusus untuk AR Music, jadi tidak perlu diulang.</p>
+      <p class="panduan-kata">${tr('guide.outro')}</p>
       <div class="pl-form-actions">
-        <a class="pill-btn" id="pd-apl" href="https://github.com/adiirmd/arMusic/releases/latest" target="_blank" rel="noopener">${icon('i-download')}<span>Aplikasi Android</span></a>
-        <button type="button" class="pill-btn primary" id="pd-ok">Mengerti</button>
+        <a class="pill-btn" id="pd-apl" href="https://github.com/adiirmd/arMusic/releases/latest" target="_blank" rel="noopener">${icon('i-download')}<span>${tr('guide.androidApp')}</span></a>
+        <button type="button" class="pill-btn primary" id="pd-ok">${tr('guide.gotIt')}</button>
       </div>
     </div>`;
   $('#pd-ok').addEventListener('click', closeModal);
@@ -3846,7 +3892,7 @@ function cekModeDesktopMenyala() {
   if (!isHandheld() || isAndroidDefaultMode()) return;
   store.set('panduan_dilihat', false);
   store.set('appbanner_off', true);
-  toast('Mode desktop aktif. Musik sekarang tetap jalan walau pindah aplikasi.');
+  toast(tr('toast.desktopOn'));
 }
 
 function maybeShowAppBanner() {
@@ -3861,10 +3907,10 @@ function maybeShowAppBanner() {
   // saja berarti menyuruh orang memasang aplikasi untuk sesuatu yang sudah
   // diselesaikan menu browsernya sendiri. Berlaku untuk ponsel dan tablet,
   // karena keduanya sama sama terkunci selama masih mode biasa.
-  const t = el.querySelector('.ab-title');
-  const s = el.querySelector('.ab-sub');
-  if (t) t.textContent = 'Musik berhenti saat pindah aplikasi';
-  if (s) s.textContent = 'Nyalakan Situs desktop di menu browser, musik jadi tetap jalan di background. Ketuk untuk lihat caranya.';
+  const judul = el.querySelector('.ab-title');
+  const sub = el.querySelector('.ab-sub');
+  if (judul) judul.textContent = tr('banner.title');
+  if (sub) sub.textContent = tr('banner.sub');
   el.classList.remove('hidden');
 }
 $('#ab-close')?.addEventListener('click', (e) => {
@@ -4052,10 +4098,14 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => setTimeout(hide, 1500));
   setTimeout(hide, 2800);
 })();
+I18N.applyStaticText();
+updateLangButton();
+notifyNativeLanguage();
 renderNav();
 setupMediaSession();
 updateThemeIcon();
 $('#theme-toggle').addEventListener('click', toggleTheme);
+$('#lang-toggle').addEventListener('click', toggleLang);
 $('#tb-search').addEventListener('click', () => go('#/search'));
 $('#np-sb').classList.toggle('on', Player.sbEnabled);
 updateQualityButton();

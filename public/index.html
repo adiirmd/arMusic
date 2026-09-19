@@ -72,6 +72,7 @@ try {
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10h4v10H4zm6 0V4h4v16h-4zm6 0v-7h4v7h-4z"/></symbol>
   <symbol id="i-note" viewBox="0 0 24 24"><path d="M10 3v10.6a3.5 3.5 0 1 0 2 3.2V7h6V3h-8z"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 7.2a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 0 0 0-9.6zM11 1h2v3h-2V1zm0 19h2v3h-2v-3zM1 11h3v2H1v-2zm19 0h3v2h-3v-2zM4.2 3.8l1.4-1.4 2.1 2.1-1.4 1.4-2.1-2.1zm12.1 12.1 1.4-1.4 2.1 2.1-1.4 1.4-2.1-2.1zM3.8 19.8l2.1-2.1 1.4 1.4-2.1 2.1-1.4-1.4zm12.1-12.1 2.1-2.1 1.4 1.4-2.1 2.1-1.4-1.4z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.9 6h-2.6a15.6 15.6 0 0 0-1.3-3.4A8 8 0 0 1 18.9 8zM12 4.1c.6.9 1.2 2.2 1.6 3.9h-3.2c.4-1.7 1-3 1.6-3.9zM4.3 14A8 8 0 0 1 4 12c0-.7.1-1.4.3-2h3a18.6 18.6 0 0 0 0 4h-3zm.8 2h2.6c.3 1.3.8 2.4 1.3 3.4A8 8 0 0 1 5.1 16zm2.6-8H5.1a8 8 0 0 1 3.9-3.4C8.5 5.6 8 6.7 7.7 8zM12 19.9c-.6-.9-1.2-2.2-1.6-3.9h3.2c-.4 1.7-1 3-1.6 3.9zm2-5.9h-4a16.4 16.4 0 0 1 0-4h4a16.4 16.4 0 0 1 0 4zm1 5.4c.5-1 1-2.1 1.3-3.4h2.6a8 8 0 0 1-3.9 3.4zm1.7-5.4a18.6 18.6 0 0 0 0-4h3c.2.6.3 1.3.3 2s-.1 1.4-.3 2h-3z"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M15.2 2.1A9.8 9.8 0 1 0 21.9 15 8 8 0 0 1 15.2 2.1z"/></symbol>
   <symbol id="i-pip" viewBox="0 0 24 24"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h15A1.5 1.5 0 0 1 21 4.5v15a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5v-15zM5 5v14h14V5H5zm7 6h6v6h-6v-6z"/></symbol>
   <symbol id="i-share" viewBox="0 0 24 24"><path d="M14 4h6v6h-2V7.4l-7.3 7.3-1.4-1.4L16.6 6H14V4zM5 7h7v2H7v8h8v-4h2v6H5V7z"/></symbol>
@@ -89,11 +90,11 @@ try {
     </div>
     <div class="side-box lib-box">
       <div class="lib-head">
-        <button class="lib-title" id="lib-title-btn"><svg class="ic"><use href="#i-library"/></svg><span>Your Library</span></button>
-        <button id="lib-new" class="icon-btn" title="Your Library"><svg class="ic"><use href="#i-fwd"/></svg></button>
+        <button class="lib-title" id="lib-title-btn"><svg class="ic"><use href="#i-library"/></svg><span data-i18n="nav.library">Your Library</span></button>
+        <button id="lib-new" class="icon-btn" data-i18n-title="nav.library" title="Your Library"><svg class="ic"><use href="#i-fwd"/></svg></button>
       </div>
       <div id="lib-list"></div>
-      <div class="sidebar-footer"><span class="sf-name">AR Music</span> · Music For Everyone</div>
+      <div class="sidebar-footer"><span class="sf-name">AR Music</span> · <span data-i18n="nav.tagline">Music For Everyone</span></div>
     </div>
   </aside>
 
@@ -101,28 +102,31 @@ try {
   <main id="main">
     <div id="topbar">
       <div class="tb-nav">
-        <button id="nav-back" class="tb-btn" title="Go back"><svg class="ic"><use href="#i-back"/></svg></button>
-        <button id="nav-fwd" class="tb-btn" title="Go forward"><svg class="ic"><use href="#i-fwd"/></svg></button>
+        <button id="nav-back" class="tb-btn" data-i18n-title="nav.back" title="Go back"><svg class="ic"><use href="#i-back"/></svg></button>
+        <button id="nav-fwd" class="tb-btn" data-i18n-title="nav.forward" title="Go forward"><svg class="ic"><use href="#i-fwd"/></svg></button>
       </div>
-      <button type="button" id="tb-search" class="tb-search" title="Search">
+      <button type="button" id="tb-search" class="tb-search" data-i18n-title="nav.search" title="Search">
         <svg class="ic"><use href="#i-search"/></svg>
-        <span>What do you want to play?</span>
+        <span data-i18n="nav.searchHint">What do you want to play?</span>
       </button>
       <div class="tb-actions">
-        <button id="theme-toggle" class="tb-btn" title="Toggle theme">
+        <button id="lang-toggle" class="tb-btn tb-lang" data-i18n-title="nav.language" title="Language">
+          <svg class="ic"><use href="#i-globe"/></svg><span id="lang-code">EN</span>
+        </button>
+        <button id="theme-toggle" class="tb-btn" data-i18n-title="nav.theme" title="Switch theme">
           <svg class="ic" id="theme-ic"><use href="#i-sun"/></svg>
         </button>
       </div>
     </div>
-    <!-- Hanya muncul di ponsel dan tablet, lihat maybeShowAppBanner() -->
+    <!-- Phones and tablets only, see maybeShowAppBanner() -->
     <div id="app-banner" class="hidden" role="button" tabindex="0">
       <div class="ab-ic"><svg class="ic"><use href="#i-note"/></svg></div>
       <div class="ab-text">
-        <div class="ab-title">Musik terus jalan di aplikasi</div>
-        <div class="ab-sub">Browser di ponsel berhenti memutar saat tabnya ditinggal. Aplikasi Android tidak.</div>
+        <div class="ab-title" data-i18n="banner.title">Music stops when you switch apps</div>
+        <div class="ab-sub" data-i18n="banner.sub">Turn on Desktop site in your browser menu and the music keeps going. Tap to see how.</div>
       </div>
-      <span class="ab-get" aria-hidden="true">Lihat cara</span>
-      <button type="button" id="ab-close" class="ab-close" title="Tutup" aria-label="Tutup"><svg class="ic"><use href="#i-x"/></svg></button>
+      <span class="ab-get" aria-hidden="true" data-i18n="banner.how">See how</span>
+      <button type="button" id="ab-close" class="ab-close" data-i18n-title="banner.close" data-i18n-aria="banner.close" title="Close" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
     <div id="view"></div>
   </main>
@@ -135,17 +139,17 @@ try {
         <div id="mini-title">—</div>
         <div id="mini-artist">—</div>
       </div>
-      <button id="mini-like" class="icon-btn" title="Favorite"><svg class="ic"><use href="#i-heart-o"/></svg></button>
-      <button id="mini-float" class="icon-btn" title="Floating widget"><svg class="ic"><use href="#i-pip"/></svg></button>
-      <button id="mini-queue-m" class="icon-btn" title="Queue"><svg class="ic"><use href="#i-queue"/></svg></button>
+      <button id="mini-like" class="icon-btn" data-i18n-title="player.favorite" title="Favorite"><svg class="ic"><use href="#i-heart-o"/></svg></button>
+      <button id="mini-float" class="icon-btn" data-i18n-title="player.widget" title="Floating widget"><svg class="ic"><use href="#i-pip"/></svg></button>
+      <button id="mini-queue-m" class="icon-btn" data-i18n-title="player.queue" title="Queue"><svg class="ic"><use href="#i-queue"/></svg></button>
     </div>
     <div class="pb-center">
       <div class="pb-buttons">
-        <button id="mini-shuffle" class="icon-btn sm" title="Shuffle"><svg class="ic"><use href="#i-shuffle"/></svg></button>
-        <button id="mini-prev" class="icon-btn" title="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
-        <button id="mini-play" class="play-circle" title="Play/Pause"><svg class="ic"><use href="#i-play"/></svg></button>
-        <button id="mini-next" class="icon-btn" title="Next"><svg class="ic"><use href="#i-next"/></svg></button>
-        <button id="mini-repeat" class="icon-btn sm" title="Repeat"><svg class="ic"><use href="#i-repeat"/></svg></button>
+        <button id="mini-shuffle" class="icon-btn sm" data-i18n-title="player.shuffle" title="Shuffle"><svg class="ic"><use href="#i-shuffle"/></svg></button>
+        <button id="mini-prev" class="icon-btn" data-i18n-title="player.previous" title="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
+        <button id="mini-play" class="play-circle" data-i18n-title="player.playPause" title="Play or pause"><svg class="ic"><use href="#i-play"/></svg></button>
+        <button id="mini-next" class="icon-btn" data-i18n-title="player.next" title="Next"><svg class="ic"><use href="#i-next"/></svg></button>
+        <button id="mini-repeat" class="icon-btn sm" data-i18n-title="player.repeat" title="Repeat"><svg class="ic"><use href="#i-repeat"/></svg></button>
       </div>
       <div class="pb-seek">
         <span id="mini-cur">0:00</span>
@@ -154,8 +158,8 @@ try {
       </div>
     </div>
     <div class="pb-right">
-      <button id="mini-open" class="icon-btn" title="Now playing"><svg class="ic"><use href="#i-npview"/></svg></button>
-      <button type="button" id="mini-mute" class="pb-vol-ic" title="Mute"><svg class="ic"><use href="#i-volume"/></svg></button>
+      <button id="mini-open" class="icon-btn" data-i18n-title="player.nowPlaying" title="Now playing"><svg class="ic"><use href="#i-npview"/></svg></button>
+      <button type="button" id="mini-mute" class="pb-vol-ic" data-i18n-title="player.mute" title="Mute"><svg class="ic"><use href="#i-volume"/></svg></button>
       <input type="range" id="mini-volume" min="0" max="100" value="100" />
     </div>
   </div>
@@ -169,15 +173,15 @@ try {
     <div class="np-inner">
       <div class="np-handle" aria-hidden="true"></div>
       <div class="np-topbar">
-        <button id="np-close" class="icon-btn" title="Minimize"><svg class="ic"><use href="#i-chev-down"/></svg></button>
-        <span class="np-caption">Now Playing</span>
-        <button id="np-sleep" class="icon-btn" title="Sleep timer"><svg class="ic"><use href="#i-clock"/></svg></button>
+        <button id="np-close" class="icon-btn" data-i18n-title="player.minimize" title="Minimize"><svg class="ic"><use href="#i-chev-down"/></svg></button>
+        <span class="np-caption" data-i18n="player.nowPlaying">Now playing</span>
+        <button id="np-sleep" class="icon-btn" data-i18n-title="player.sleepTimer" title="Sleep timer"><svg class="ic"><use href="#i-clock"/></svg></button>
       </div>
       <div class="np-tabs">
-        <button data-nptab="player" class="np-tab active"><svg class="ic"><use href="#i-note"/></svg>Song</button>
-        <button data-nptab="lyrics" class="np-tab"><svg class="ic"><use href="#i-mic"/></svg>Lyrics</button>
-        <button data-nptab="queue" class="np-tab"><svg class="ic"><use href="#i-queue"/></svg>Queue</button>
-        <button data-nptab="related" class="np-tab"><svg class="ic"><use href="#i-radio"/></svg>Related</button>
+        <button data-nptab="player" class="np-tab active"><svg class="ic"><use href="#i-note"/></svg><span data-i18n="tab.song">Song</span></button>
+        <button data-nptab="lyrics" class="np-tab"><svg class="ic"><use href="#i-mic"/></svg><span data-i18n="tab.lyrics">Lyrics</span></button>
+        <button data-nptab="queue" class="np-tab"><svg class="ic"><use href="#i-queue"/></svg><span data-i18n="tab.queue">Queue</span></button>
+        <button data-nptab="related" class="np-tab"><svg class="ic"><use href="#i-radio"/></svg><span data-i18n="tab.related">Related</span></button>
       </div>
       <div class="np-body">
         <section id="np-player" class="np-pane active">
@@ -192,40 +196,40 @@ try {
             <span id="np-dur">0:00</span>
           </div>
           <div class="np-controls">
-            <button id="np-shuffle" class="icon-btn" title="Shuffle"><svg class="ic"><use href="#i-shuffle"/></svg></button>
-            <button id="np-prev" class="icon-btn" title="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
-            <button id="np-play" class="play-big" title="Play/Pause"><svg class="ic"><use href="#i-play"/></svg></button>
-            <button id="np-next" class="icon-btn" title="Next"><svg class="ic"><use href="#i-next"/></svg></button>
-            <button id="np-repeat" class="icon-btn" title="Repeat"><svg class="ic"><use href="#i-repeat"/></svg></button>
+            <button id="np-shuffle" class="icon-btn" data-i18n-title="player.shuffle" title="Shuffle"><svg class="ic"><use href="#i-shuffle"/></svg></button>
+            <button id="np-prev" class="icon-btn" data-i18n-title="player.previous" title="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
+            <button id="np-play" class="play-big" data-i18n-title="player.playPause" title="Play or pause"><svg class="ic"><use href="#i-play"/></svg></button>
+            <button id="np-next" class="icon-btn" data-i18n-title="player.next" title="Next"><svg class="ic"><use href="#i-next"/></svg></button>
+            <button id="np-repeat" class="icon-btn" data-i18n-title="player.repeat" title="Repeat"><svg class="ic"><use href="#i-repeat"/></svg></button>
           </div>
           <div class="np-actions">
-            <button id="np-playnext" class="pill-btn hidden" title="Play next"><svg class="ic"><use href="#i-next"/></svg><span>Play next</span></button>
-            <button id="np-queueadd" class="pill-btn hidden" title="Add to queue"><svg class="ic"><use href="#i-queue"/></svg><span>Add to queue</span></button>
-            <button id="np-like" class="pill-btn"><svg class="ic"><use href="#i-heart-o"/></svg><span>Favorite</span></button>
-            <button id="np-addpl" class="pill-btn"><svg class="ic"><use href="#i-plus"/></svg><span>Playlist</span></button>
-            <button id="np-more" class="pill-btn" title="More"><svg class="ic"><use href="#i-more"/></svg><span>More</span></button>
-            <button id="np-download" class="pill-btn np-extra" title="Download"><svg class="ic"><use href="#i-download"/></svg><span>Download</span></button>
-            <button id="np-share" class="pill-btn np-extra" title="Share"><svg class="ic"><use href="#i-share"/></svg><span>Share</span></button>
-            <button id="np-speed" class="pill-btn np-extra" title="Playback speed"><svg class="ic"><use href="#i-clock"/></svg><span>1×</span></button>
-            <button id="np-float" class="pill-btn np-extra" title="Floating widget"><svg class="ic"><use href="#i-pip"/></svg><span>Widget</span></button>
-            <button id="np-quality" class="pill-btn np-extra" title="YouTube Music audio — tap for YouTube max quality"><span>Quality</span></button>
-            <button id="np-sb" class="pill-btn np-extra" title="SponsorBlock auto-skip"><svg class="ic"><use href="#i-next"/></svg><span>SB</span></button>
+            <button id="np-playnext" class="pill-btn hidden" data-i18n-title="player.playNext" title="Play next"><svg class="ic"><use href="#i-next"/></svg><span data-i18n="player.playNext">Play next</span></button>
+            <button id="np-queueadd" class="pill-btn hidden" data-i18n-title="player.addToQueue" title="Add to queue"><svg class="ic"><use href="#i-queue"/></svg><span data-i18n="player.addToQueue">Add to queue</span></button>
+            <button id="np-like" class="pill-btn"><svg class="ic"><use href="#i-heart-o"/></svg><span data-i18n="player.favorite">Favorite</span></button>
+            <button id="np-addpl" class="pill-btn"><svg class="ic"><use href="#i-plus"/></svg><span data-i18n="player.playlist">Playlist</span></button>
+            <button id="np-more" class="pill-btn" data-i18n-title="player.more" title="More"><svg class="ic"><use href="#i-more"/></svg><span data-i18n="player.more">More</span></button>
+            <button id="np-download" class="pill-btn np-extra" data-i18n-title="player.download" title="Download"><svg class="ic"><use href="#i-download"/></svg><span data-i18n="player.download">Download</span></button>
+            <button id="np-share" class="pill-btn np-extra" data-i18n-title="player.share" title="Share"><svg class="ic"><use href="#i-share"/></svg><span data-i18n="player.share">Share</span></button>
+            <button id="np-speed" class="pill-btn np-extra" data-i18n-title="player.speed" title="Playback speed"><svg class="ic"><use href="#i-clock"/></svg><span>1×</span></button>
+            <button id="np-float" class="pill-btn np-extra" data-i18n-title="player.widget" title="Floating widget"><svg class="ic"><use href="#i-pip"/></svg><span data-i18n="player.widget">Widget</span></button>
+            <button id="np-quality" class="pill-btn np-extra" data-i18n-title="player.qualityHint" title="YouTube Music audio. Tap for YouTube max quality"><span data-i18n="player.quality">Quality</span></button>
+            <button id="np-sb" class="pill-btn np-extra" data-i18n-title="player.sbHint" title="Skip sponsors automatically"><svg class="ic"><use href="#i-next"/></svg><span>SB</span></button>
             <div class="np-volume">
-              <button type="button" id="np-mute" class="vol-btn" title="Mute"><svg class="ic vol-ic"><use href="#i-volume"/></svg></button><input type="range" id="np-volume" min="0" max="100" value="100" />
+              <button type="button" id="np-mute" class="vol-btn" data-i18n-title="player.mute" title="Mute"><svg class="ic vol-ic"><use href="#i-volume"/></svg></button><input type="range" id="np-volume" min="0" max="100" value="100" />
             </div>
           </div>
-          <div id="np-lyric-preview" title="Open lyrics"></div>
+          <div id="np-lyric-preview" data-i18n-title="player.openLyrics" title="Open lyrics"></div>
         </section>
         <section id="np-lyrics" class="np-pane">
-          <div id="lyrics-container"><div class="lyrics-empty">No lyrics yet</div></div>
+          <div id="lyrics-container"><div class="lyrics-empty" data-i18n="lyrics.none">No lyrics yet</div></div>
           <div id="lyrics-foot">
-            <button type="button" id="lyr-earlier" title="Nudge lyrics earlier">−0,5s</button>
+            <button type="button" id="lyr-earlier" data-i18n-title="lyrics.earlier" title="Nudge lyrics earlier">−0,5s</button>
             <span id="lyrics-source"></span>
-            <button type="button" id="lyr-later" title="Nudge lyrics later">+0,5s</button>
+            <button type="button" id="lyr-later" data-i18n-title="lyrics.later" title="Nudge lyrics later">+0,5s</button>
           </div>
         </section>
         <section id="np-queue" class="np-pane"><div id="queue-list"></div></section>
-        <section id="np-related" class="np-pane"><div id="related-list"><div class="loading-note">Loading…</div></div></section>
+        <section id="np-related" class="np-pane"><div id="related-list"><div class="loading-note" data-i18n="misc.loading">Loading…</div></div></section>
       </div>
     </div>
   </div>
@@ -233,10 +237,10 @@ try {
   <!-- Add-to-playlist modal -->
   <div id="modal" class="hidden">
     <div class="modal-card">
-      <h3 id="modal-title">Add to playlist</h3>
+      <h3 id="modal-title" data-i18n="modal.addToPlaylist">Add to playlist</h3>
       <div id="modal-body"></div>
       <div class="modal-actions">
-        <button id="modal-cancel" class="pill-btn">Close</button>
+        <button id="modal-cancel" class="pill-btn" data-i18n="modal.close">Close</button>
       </div>
     </div>
   </div>
@@ -244,19 +248,19 @@ try {
   <div id="toast" class="hidden"></div>
 
   <!-- Floating mini widget (in-page fallback; also cloned into Document PiP) -->
-  <div id="float-widget" class="hidden" aria-label="Floating player">
+  <div id="float-widget" class="hidden" data-i18n-aria="player.floatingPlayer" aria-label="Floating player">
     <img id="fw-art" alt="" />
     <div class="fw-meta">
       <div id="fw-title">—</div>
       <div id="fw-artist">—</div>
-      <div id="fw-lyric" title="Open lyrics"></div>
+      <div id="fw-lyric" data-i18n-title="player.openLyrics" title="Open lyrics"></div>
       <div class="fw-bar" id="fw-bar"><div id="fw-fill"></div></div>
     </div>
     <div class="fw-controls">
-      <button type="button" class="fw-btn" data-fw="prev" title="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
-      <button type="button" class="fw-btn fw-play" data-fw="play" title="Play/Pause"><svg class="ic"><use href="#i-play"/></svg></button>
-      <button type="button" class="fw-btn" data-fw="next" title="Next"><svg class="ic"><use href="#i-next"/></svg></button>
-      <button type="button" class="fw-btn" data-fw="close" title="Close widget"><svg class="ic"><use href="#i-x"/></svg></button>
+      <button type="button" class="fw-btn" data-fw="prev" data-i18n-title="player.previous" title="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
+      <button type="button" class="fw-btn fw-play" data-fw="play" data-i18n-title="player.playPause" title="Play or pause"><svg class="ic"><use href="#i-play"/></svg></button>
+      <button type="button" class="fw-btn" data-fw="next" data-i18n-title="player.next" title="Next"><svg class="ic"><use href="#i-next"/></svg></button>
+      <button type="button" class="fw-btn" data-fw="close" data-i18n-title="player.closeWidget" title="Close widget"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
   </div>
 
@@ -265,6 +269,7 @@ try {
   <canvas id="pip-canvas" width="480" height="270"></canvas>
   <video id="pip-video" muted playsinline autoplay></video>
 </div>
-<script src="app.js?v=20260919q"></script>
+<script src="i18n.js?v=20260919r"></script>
+<script src="app.js?v=20260919r"></script>
 </body>
 </html>
