@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AR Music</string>
-    <string name="channel_playback">Pemutaran</string>
-    <string name="channel_playback_desc">Menjaga musik tetap berjalan saat aplikasi di latar belakang</string>
+    <!--
+        The notification wording used to live here. It moved to Wording.kt so it
+        can follow the language chosen inside the app rather than the language
+        of the phone, which is what people actually expect after picking one.
+    -->
 </resources>

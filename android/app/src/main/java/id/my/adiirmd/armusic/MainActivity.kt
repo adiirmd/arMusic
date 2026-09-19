@@ -40,13 +40,25 @@ class MainActivity : AppCompatActivity() {
      * simply does not exist and the call is skipped.
      */
     inner class NativeBridge {
+        /** The page tells us which language it is showing, so the notification
+         *  and the messages below answer in the same one. */
+        @JavascriptInterface
+        fun setLanguage(code: String) {
+            runOnUiThread {
+                val before = Wording.current(this@MainActivity)
+                Wording.set(this@MainActivity, code)
+                if (Wording.current(this@MainActivity) != before) {
+                    PlaybackService.refresh(this@MainActivity)
+                }
+            }
+        }
+
         /**
-         * Unduhan. WebView tidak mengunduh apa pun sendiri: mengeklik tautan
-         * unduh di dalamnya tidak menghasilkan apa apa, dan halaman tidak
-         * pernah diberi kabar bahwa tidak terjadi apa apa. Karena itu halaman
-         * menyerahkannya ke sini, lengkap dengan nama berkas yang diinginkan,
-         * supaya yang tersimpan bernama judul lagunya dan bukan nama acak dari
-         * server pengonversi.
+         * Downloads. A WebView never downloads anything by itself: tapping a
+         * download link inside one does nothing at all, and the page is never
+         * told that nothing happened. So the page hands it over here along with
+         * the filename it wants, which is how the saved file ends up named
+         * after the song instead of whatever the converter called it.
          */
         @JavascriptInterface
         fun download(url: String, name: String) {
@@ -213,7 +225,7 @@ class MainActivity : AppCompatActivity() {
     private fun unduh(url: String, namaDiminta: String) {
         val uri = runCatching { Uri.parse(url) }.getOrNull()
         if (uri == null || (uri.scheme != "https" && uri.scheme != "http")) {
-            Toast.makeText(this, "Tautan unduhan tidak dikenali", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, Wording.of(this, "badLink"), Toast.LENGTH_SHORT).show()
             return
         }
         // Pemisah folder harus disingkirkan, atau berkasnya bisa mendarat di
@@ -240,9 +252,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (hasil.isSuccess) {
-            Toast.makeText(this, "Mengunduh $nama", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, Wording.of(this, "downloading").format(nama), Toast.LENGTH_SHORT).show()
         } else {
-            Toast.makeText(this, "Unduhan gagal dimulai", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, Wording.of(this, "downloadFailed"), Toast.LENGTH_LONG).show()
         }
     }
 

@@ -44,6 +44,7 @@ class PlaybackService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        running = true
         session = MediaSessionCompat(this, "ARMusic").apply {
             /*
              * Perintahnya harus menyebut maunya apa, bukan "balik keadaan".
@@ -71,6 +72,10 @@ class PlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> { stopSelf(); return START_NOT_STICKY }
+            // The language changed. Draw the notification again and touch
+            // nothing else, or the song showing on it would be wiped: the
+            // fields below fall back to defaults whenever extras are missing.
+            ACTION_REFRESH -> { createChannel(); startFg(); return START_NOT_STICKY }
             // Transport buttons arrive with no extras: forward and redraw only.
             ACTION_PLAY, ACTION_PAUSE, ACTION_NEXT, ACTION_PREV -> {
                 PlaybackCommands.send(
@@ -190,14 +195,14 @@ class PlaybackService : Service() {
             .setShowWhen(false)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .addAction(action(R.drawable.ic_note_prev, "Sebelumnya", ACTION_PREV))
+            .addAction(action(R.drawable.ic_note_prev, Wording.of(this, "previous"), ACTION_PREV))
             .addAction(
                 // aksinya mengikuti ikon yang digambar, jadi notifikasi yang
                 // sempat basi pun tidak bisa menyalakan musik yang sudah dijeda
-                if (playing) action(R.drawable.ic_note_pause, "Jeda", ACTION_PAUSE)
-                else action(R.drawable.ic_note_play, "Putar", ACTION_PLAY)
+                if (playing) action(R.drawable.ic_note_pause, Wording.of(this, "pause"), ACTION_PAUSE)
+                else action(R.drawable.ic_note_play, Wording.of(this, "play"), ACTION_PLAY)
             )
-            .addAction(action(R.drawable.ic_note_next, "Berikutnya", ACTION_NEXT))
+            .addAction(action(R.drawable.ic_note_next, Wording.of(this, "next"), ACTION_NEXT))
             .setStyle(
                 MediaStyle()
                     .setMediaSession(session?.sessionToken)
@@ -209,12 +214,14 @@ class PlaybackService : Service() {
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val mgr = getSystemService(NotificationManager::class.java)
-        if (mgr.getNotificationChannel(CHANNEL_ID) != null) return
+        // Created every time rather than only once. Calling this again with the
+        // same id renames an existing channel instead of adding a second one,
+        // which is what lets the channel follow a change of language.
         mgr.createNotificationChannel(
             NotificationChannel(
-                CHANNEL_ID, getString(R.string.channel_playback), NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID, Wording.of(this, "channel"), NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = getString(R.string.channel_playback_desc)
+                description = Wording.of(this, "channelDesc")
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -222,6 +229,7 @@ class PlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         session?.isActive = false
         session?.release()
         session = null
@@ -237,11 +245,15 @@ class PlaybackService : Service() {
         const val ACTION_PAUSE = "id.my.adiirmd.armusic.PAUSE"
         const val ACTION_NEXT = "id.my.adiirmd.armusic.NEXT"
         const val ACTION_PREV = "id.my.adiirmd.armusic.PREV"
+        const val ACTION_REFRESH = "id.my.adiirmd.armusic.REFRESH"
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_ARTIST = "artist"
         private const val EXTRA_ART = "art"
         private const val EXTRA_PLAYING = "playing"
         private const val EXTRA_DURATION = "duration"
+
+        /** True once the service is up, so a redraw never starts it by itself. */
+        @Volatile private var running = false
 
         fun update(ctx: Context, playing: Boolean, title: String, artist: String, art: String, durationSec: Int) {
             val i = Intent(ctx, PlaybackService::class.java)
@@ -256,6 +268,22 @@ class PlaybackService : Service() {
 
         fun stop(ctx: Context) {
             ctx.stopService(Intent(ctx, PlaybackService::class.java))
+        }
+
+        /**
+         * Draws the notification again after the language changes, keeping
+         * the song it is already showing. Carries its own action for that
+         * reason: an intent with no extras would reset the title, the artist
+         * and the artwork on the way through.
+         *
+         * Does nothing when no song has been shown yet, since there is no
+         * notification to redraw and starting one would put up an empty player.
+         */
+        fun refresh(ctx: Context) {
+            if (!running) return
+            val i = Intent(ctx, PlaybackService::class.java).setAction(ACTION_REFRESH)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i)
+            else ctx.startService(i)
         }
     }
 }
