@@ -557,6 +557,95 @@ app.get('/api/download-progress', async (req, res) => {
   }
 });
 
+/* ---------------- uji kelayakan: bisakah aliran audio diambil sendiri? ----------------
+
+   Ini alat ukur, bukan fitur. Tidak ada satu pun bagian aplikasi yang
+   memanggilnya, dan tidak ada tautan menuju ke sini.
+
+   Latar belakangnya: di ponsel yang browsernya masih mode biasa, bingkai
+   YouTube menolak berbunyi begitu halamannya ditinggal, dan penolakan itu
+   sudah terbukti tidak bisa ditawar dari sisi halaman. Satu satunya jalan
+   yang tersisa adalah tidak lagi menjadikan bingkai itu sumber suaranya,
+   melainkan memutar audionya lewat elemen audio milik kita sendiri. Browser
+   memperlakukan audio milik halaman sendiri seperti situs musik mana pun,
+   yaitu boleh jalan di latar belakang lengkap dengan notifikasi yang
+   tombolnya berfungsi.
+
+   Yang belum diketahui, dan hanya bisa dijawab dari server yang sebenarnya:
+   apakah permintaan seperti ini dilayani dari alamat pusat data seperti
+   Vercel, atau justru ditolak. Jawabannya menentukan apakah pekerjaan
+   besarnya layak dimulai, jadi lebih murah diukur dulu lewat satu alamat
+   daripada membongkar pemutarnya lalu tahu belakangan.
+
+   Dihapus lagi setelah pertanyaannya terjawab. */
+const PROBE_CLIENTS = [
+  {
+    nama: 'ANDROID',
+    ctx: { clientName: 'ANDROID', clientVersion: '19.09.37', androidSdkVersion: 30, hl: 'en', gl: 'US' },
+    ua: 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
+  },
+  {
+    nama: 'IOS',
+    ctx: { clientName: 'IOS', clientVersion: '19.09.3', deviceModel: 'iPhone14,3', hl: 'en', gl: 'US' },
+    ua: 'com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
+  },
+  {
+    nama: 'WEB',
+    ctx: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en', gl: 'US' },
+    ua: HEADERS['User-Agent'],
+  },
+];
+
+app.get('/api/audio-probe', async (req, res) => {
+  const videoId = String(req.query.videoId || 'JGwWNGJdvx8');
+  if (!/^[\w-]{6,20}$/.test(videoId)) return res.status(400).json({ error: 'bad id' });
+  const hasil = [];
+  for (const c of PROBE_CLIENTS) {
+    const baris = { klien: c.nama };
+    try {
+      const r = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': c.ua },
+        body: JSON.stringify({ videoId, context: { client: c.ctx } }),
+      });
+      baris.http = r.status;
+      const d = await r.json();
+      baris.status = d?.playabilityStatus?.status || null;
+      const alasan = d?.playabilityStatus?.reason || '';
+      if (alasan) baris.alasan = String(alasan).slice(0, 160);
+      const audio = (d?.streamingData?.adaptiveFormats || [])
+        .filter((f) => String(f.mimeType || '').startsWith('audio'))
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      baris.jumlahAudio = audio.length;
+      if (audio.length) {
+        const b = audio[0];
+        baris.terbaik = { bitrate: b.bitrate || null, mime: String(b.mimeType || '').slice(0, 40) };
+        baris.urlLangsung = !!b.url;
+        baris.terkunciCipher = !!b.signatureCipher && !b.url;
+        // Apakah alamat itu benar benar bisa diambil dari sini, bukan cuma ada.
+        if (b.url) {
+          try {
+            const a = await fetch(b.url, { headers: { Range: 'bytes=0-1023' } });
+            baris.ambil = {
+              http: a.status,
+              tipe: a.headers.get('content-type'),
+              cors: a.headers.get('access-control-allow-origin') || null,
+            };
+            baris.url = b.url;   // dipakai untuk menguji pemutaran dari ponsel
+          } catch (e) {
+            baris.ambil = { galat: String(e.message).slice(0, 120) };
+          }
+        }
+      }
+    } catch (e) {
+      baris.galat = String(e.message).slice(0, 160);
+    }
+    hasil.push(baris);
+  }
+  res.set('Cache-Control', 'no-store');
+  res.json({ videoId, hasil });
+});
+
 /* resolve a YT Music / YouTube URL (playlist, album, artist, song) into an app route */
 app.get('/api/resolve', async (req, res) => {
   try {
