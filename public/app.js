@@ -339,7 +339,7 @@ function toggleQuality() {
     applyPlaybackQuality();
     return;
   }
-  const t = (Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0;
+  const t = PB.time();
   Player.yt.loadVideoById({
     videoId: Player.current.videoId,
     startSeconds: t,
@@ -348,6 +348,219 @@ function toggleQuality() {
   applyPlaybackQuality();
   setTimeout(applyPlaybackQuality, 400);
   setTimeout(applyPlaybackQuality, 1600);
+}
+
+/* ================= mesin suara ini punya dua ================= */
+/* Sampai sekarang yang berbunyi selalu bingkai YouTube. Itu bekerja di mana
+ * saja kecuali satu tempat: browser ponsel dalam mode biasa, yang menolak
+ * membunyikannya begitu halaman ditinggal. Semua jalan untuk membujuk bingkai
+ * itu sudah dicoba dan gagal, catatannya ada di bagian bawah berkas ini.
+ *
+ * Maka untuk perangkat sentuh, suaranya dipindahkan ke elemen audio milik
+ * halaman sendiri. Audio milik halaman diperlakukan browser seperti situs
+ * musik mana pun: boleh jalan di latar belakang, notifikasinya asli, dan
+ * tombolnya berfungsi.
+ *
+ * Yang membuatnya bisa dipakai tanpa membuat orang menunggu adalah urutannya.
+ * Lagunya tetap mulai dari bingkai YouTube seperti biasa, jadi tidak ada jeda
+ * sama sekali saat ditekan. Alamat berkas audionya dicari diam diam di
+ * belakang layar, dan begitu siap, pemutaran dioper ke elemen audio pada
+ * detik yang sama lalu bingkainya dijeda. Kalau pencariannya gagal atau
+ * kelamaan, tidak ada yang dioper dan keadaannya persis seperti sebelumnya.
+ * Jadi yang paling buruk yang bisa terjadi adalah tidak ada perubahan.
+ *
+ * PB adalah muka depan yang menutupi dua mesin itu. Bentuknya sengaja meniru
+ * pemutar YouTube, termasuk angka keadaannya, supaya seluruh sisa aplikasi,
+ * dari bilah kemajuan sampai lirik dan SponsorBlock, tidak perlu tahu mesin
+ * mana yang sedang bunyi. */
+const PB = {
+  el: null,
+  vid: null,   // lagu yang sedang dipegang elemen audio, null berarti bingkai yang memegang
+  get pakaiAudio() {
+    return !!(this.el && this.vid && Player.current && Player.current.videoId === this.vid);
+  },
+  state() {
+    if (this.pakaiAudio) {
+      const a = this.el;
+      if (a.ended) return 0;                 // ENDED
+      if (a.paused) return 2;                // PAUSED
+      if (a.readyState < 3) return 3;        // BUFFERING
+      return 1;                              // PLAYING
+    }
+    try { return Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch { return -1; }
+  },
+  time() {
+    if (this.pakaiAudio) return this.el.currentTime || 0;
+    try { return (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0; } catch { return 0; }
+  },
+  duration() {
+    if (this.pakaiAudio && isFinite(this.el.duration) && this.el.duration > 0) return this.el.duration;
+    try { return (Player.yt && Player.yt.getDuration && Player.yt.getDuration()) || 0; } catch { return 0; }
+  },
+  seek(t) {
+    if (this.pakaiAudio) { try { this.el.currentTime = Math.max(0, t); } catch {} return; }
+    try { Player.yt.seekTo(t, true); } catch {}
+  },
+  play() {
+    if (this.pakaiAudio) { const r = this.el.play(); if (r && r.catch) r.catch(() => {}); return; }
+    try { Player.yt.playVideo(); } catch {}
+  },
+  pause() {
+    if (this.pakaiAudio) { try { this.el.pause(); } catch {} return; }
+    try { Player.yt.pauseVideo(); } catch {}
+  },
+  /* Setelan berikut dikenakan pada dua duanya, bukan hanya yang sedang bunyi,
+     supaya mesin yang menyusul tidak mulai dengan suara atau kecepatan lama. */
+  volume(v) {
+    const n = Math.max(0, Math.min(100, Number(v) || 0));
+    if (this.el) this.el.volume = n / 100;
+    try { Player.yt.setVolume(n); } catch {}
+  },
+  mute(on) {
+    if (this.el) this.el.muted = !!on;
+    try { if (on) Player.yt.mute(); else Player.yt.unMute(); } catch {}
+  },
+  rate(r) {
+    if (this.el) { try { this.el.playbackRate = r; } catch {} }
+    try { Player.yt.setPlaybackRate(r); } catch {}
+  },
+};
+
+/* Perangkat yang suaranya dipindahkan. Semua perangkat sentuh ikut, jadi
+   ponsel Android, tablet, dan ponsel sistem lain, sesuai permintaan. Di dalam
+   aplikasi Android tidak perlu, karena di sana bingkai YouTube memang sudah
+   boleh jalan di latar belakang. */
+function pakaiMesinAudio() {
+  return isHandheld() && !document.documentElement.classList.contains('in-app');
+}
+
+/* Pencarian alamat berkas audio. Yang dipakai adalah dua alamat yang sudah
+   ada untuk fitur unduh, jadi tidak ada yang perlu ditambahkan di server.
+   Hasilnya diingat per lagu supaya satu lagu tidak pernah diminta dua kali,
+   dan kegagalan juga diingat supaya tidak dicoba terus menerus. */
+const Aliran = {
+  siap: new Map(),
+  kerja: new Map(),
+  gagal: new Set(),
+  cari(videoId) {
+    if (!videoId) return Promise.resolve(null);
+    if (this.siap.has(videoId)) return Promise.resolve(this.siap.get(videoId));
+    if (this.kerja.has(videoId)) return this.kerja.get(videoId);
+    if (this.gagal.has(videoId)) return Promise.resolve(null);
+    const p = (async () => {
+      const mulai = Date.now();
+      try {
+        const st = await api(`/api/download-start?videoId=${encodeURIComponent(videoId)}`);
+        if (!st.progressUrl) throw new Error('tanpa alamat kemajuan');
+        for (let i = 0; i < 48; i++) {
+          await new Promise((r) => setTimeout(r, 2500));
+          const d = await api(`/api/download-progress?progressUrl=${encodeURIComponent(st.progressUrl)}`);
+          if (d.done && d.url) {
+            Aliran.siap.set(videoId, d.url);
+            Diag.add('aliran', 'siap ' + videoId + ' dalam ' + Math.round((Date.now() - mulai) / 1000) + 's');
+            return d.url;
+          }
+        }
+        throw new Error('kelamaan');
+      } catch (e) {
+        Aliran.gagal.add(videoId);
+        Diag.add('aliran-gagal', videoId + ' ' + String((e && e.message) || e).slice(0, 60));
+        return null;
+      } finally {
+        Aliran.kerja.delete(videoId);
+      }
+    })();
+    this.kerja.set(videoId, p);
+    return p;
+  },
+};
+
+function elemenAudio() {
+  if (PB.el) return PB.el;
+  const a = document.createElement('audio');
+  a.preload = 'auto';
+  a.playsInline = true;
+  a.style.display = 'none';
+  a.volume = Math.max(0, Math.min(100, Number(store.get('vol', 100)))) / 100;
+  a.addEventListener('ended', () => { if (PB.pakaiAudio) nextTrack(true); });
+  a.addEventListener('play', () => { Player.wantPlaying = true; syncMediaSession(true); renderPlayButtons(); });
+  a.addEventListener('pause', () => { syncMediaSession(false); renderPlayButtons(); });
+  a.addEventListener('error', () => {
+    Diag.add('mesin', 'audio bermasalah, dikembalikan ke bingkai');
+    lepasMesinAudio(true);
+  });
+  document.body.appendChild(a);
+  PB.el = a;
+  return a;
+}
+
+/* Mengembalikan suara ke bingkai YouTube. Dipakai saat ganti lagu, dan saat
+   berkas audionya bermasalah di tengah jalan. */
+function lepasMesinAudio(lanjutkanDiBingkai) {
+  if (!PB.el) return;
+  const detik = PB.pakaiAudio ? PB.el.currentTime : null;
+  PB.vid = null;
+  try { PB.el.pause(); PB.el.removeAttribute('src'); PB.el.load(); } catch {}
+  if (lanjutkanDiBingkai && Player.current && Player.ready) {
+    try {
+      if (detik != null) Player.yt.seekTo(detik, true);
+      if (Player.wantPlaying) Player.yt.playVideo();
+    } catch {}
+  }
+}
+
+/* Pengoperan. Dilakukan hanya kalau lagunya masih lagu yang sama, karena
+   pencariannya berjalan lama dan pendengar bisa saja sudah pindah lagu. */
+function operKeAudio(videoId, url) {
+  const a = elemenAudio();
+  const sedangJalan = PB.state() === YT.PlayerState.PLAYING;
+  a.src = url;
+  const jalankan = () => {
+    a.removeEventListener('canplay', jalankan);
+    if (!Player.current || Player.current.videoId !== videoId) return;
+    const detik = PB.time();           // masih dibaca dari bingkai, PB.vid belum diisi
+    try { a.currentTime = Math.max(0, detik); } catch {}
+
+    /* Pengoperan hanya sah kalau posisinya benar benar ikut pindah. Ada berkas
+       yang tidak bisa diloncati posisinya, dan kalau itu terjadi elemen audio
+       akan diam diam mulai dari nol. Lagunya jadi terulang dari awal di tengah
+       tengah, yang jauh lebih mengganggu daripada tidak dioper sama sekali.
+       Jadi kalau meleset, pengoperan dibatalkan dan bingkai YouTube dibiarkan
+       meneruskan. Alamatnya sudah tersimpan, jadi lagu berikutnya tetap bisa
+       dioper, dan di sana posisinya memang nol sehingga tidak ada yang perlu
+       diloncati. */
+    const meleset = Math.abs((a.currentTime || 0) - detik);
+    if (detik > 2 && meleset > 1.5) {
+      Diag.add('mesin', 'batal oper, posisi meleset ' + meleset.toFixed(1) + 's');
+      try { a.pause(); a.removeAttribute('src'); a.load(); } catch {}
+      return;
+    }
+
+    try { a.playbackRate = Player.speed || 1; } catch {}
+    PB.vid = videoId;
+    if (sedangJalan || Player.wantPlaying) { const r = a.play(); if (r && r.catch) r.catch(() => {}); }
+    try { Player.yt.pauseVideo(); } catch {}
+    Diag.add('mesin', 'dioper ke audio pada detik ' + Math.round(detik));
+    assertMediaSession();
+  };
+  a.addEventListener('canplay', jalankan);
+  try { a.load(); } catch {}
+}
+
+/* Dipanggil tiap kali lagu mulai. Tidak menunggu apa pun: lagunya sudah
+   berbunyi dari bingkai sejak tadi, ini cuma menyiapkan penggantinya. */
+async function siapkanMesinAudio(song) {
+  if (!pakaiMesinAudio() || !song || !song.videoId) return;
+  const videoId = song.videoId;
+  const url = await Aliran.cari(videoId);
+  if (url && Player.current && Player.current.videoId === videoId && !PB.pakaiAudio) {
+    operKeAudio(videoId, url);
+  }
+  // satu lagu berikutnya disiapkan lebih awal, supaya pengoperan berikutnya
+  // bisa terjadi di awal lagu, bukan di tengah. Hanya satu, karena tiap
+  // pencarian berarti satu berkas yang diunduh.
+  const nanti = Player.queue[Player.index + 1];
+  if (nanti && nanti.videoId && !Aliran.siap.has(nanti.videoId)) Aliran.cari(nanti.videoId);
 }
 
 window.onYouTubeIframeAPIReady = () => {
@@ -369,7 +582,7 @@ window.onYouTubeIframeAPIReady = () => {
       onReady: () => {
         Player.ready = true;
         const v = store.get('vol', 100);
-        Player.yt.setVolume(Number(v));
+        PB.volume(Number(v));
         applyPlaybackQuality();
         try {
           const iframe = Player.yt.getIframe && Player.yt.getIframe();
@@ -377,6 +590,15 @@ window.onYouTubeIframeAPIReady = () => {
         } catch {}
       },
       onStateChange: (e) => {
+        // Begitu suaranya dipegang elemen audio, kabar dari bingkai bukan lagi
+        // kabar tentang lagu yang didengar. Yang paling menyesatkan adalah
+        // jeda yang justru kita sendiri yang menyuruh saat pengoperan: kalau
+        // diteruskan, tombol dan notifikasi akan bilang terjeda padahal
+        // musiknya jalan.
+        if (PB.pakaiAudio) {
+          Diag.add('yt', 'diabaikan, suara di elemen audio | keadaan ' + e.data);
+          return;
+        }
         if (e.data === YT.PlayerState.ENDED) {
           try {
             const vid = Player.yt.getVideoData && Player.yt.getVideoData().video_id;
@@ -513,7 +735,7 @@ function restoreQueue() {
     if (!Player.ready) return setTimeout(tryCue, 300);
     try {
       Player.yt.cueVideoById({ videoId: s.videoId, suggestedQuality: suggestedQuality() });
-      Player.yt.setPlaybackRate(Player.speed);
+      PB.rate(Player.speed);
     } catch {}
   };
   tryCue();
@@ -559,19 +781,26 @@ function startCurrent() {
   Player.pending = null;
   const s = Player.current;
   if (!s) return;
+  // Lagu sebelumnya mungkin sedang dipegang elemen audio. Dilepas dulu, dan
+  // tanpa diteruskan ke bingkai, karena bingkainya sebentar lagi memuat lagu
+  // yang baru.
+  lepasMesinAudio(false);
   const loadId = ++Player.loadId;
   const tryPlay = () => {
     if (loadId !== Player.loadId) return;
     if (!Player.ready) return setTimeout(tryPlay, 300);
     Player.yt.loadVideoById({ videoId: s.videoId, suggestedQuality: suggestedQuality() });
-    Player.yt.setPlaybackRate(Player.speed);
+    PB.rate(Player.speed);
     Player.wantPlaying = true;
-    Player.yt.playVideo();
+    PB.play();
     applyPlaybackQuality();
     setTimeout(applyPlaybackQuality, 400);
     setTimeout(applyPlaybackQuality, 1600);
   };
   tryPlay();
+  // Menyiapkan mesin audio untuk perangkat sentuh. Tidak ditunggu, lagunya
+  // sudah berbunyi dari bingkai.
+  siapkanMesinAudio(s);
   Library.pushHistory(s);
   maybeExtendQueue();
   Player.lyrics = { synced: null, plain: null, source: null, lines: [] };
@@ -795,7 +1024,7 @@ function nextTrack(auto) {
     togglePlay();
     return;
   }
-  if (Player.repeat === 2 && auto) { Player.yt.seekTo(0); Player.wantPlaying = true; Player.yt.playVideo(); return; }
+  if (Player.repeat === 2 && auto) { PB.seek(0); Player.wantPlaying = true; PB.play(); return; }
   if (!Player.queue.length) return;
   let ni;
   if (Player.shuffle) {
@@ -820,16 +1049,16 @@ function nextTrack(auto) {
 }
 function prevTrack() {
   if (Player.cued) { togglePlay(); return; }
-  if (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime() > 4) { Player.yt.seekTo(0); return; }
+  if (PB.time() > 4) { PB.seek(0); return; }
   if (Player.index > 0) { Player.index--; startCurrent(); }
-  else if (Player.yt) Player.yt.seekTo(0);
+  else if (Player.yt) PB.seek(0);
 }
 function seekRelative(delta) {
   if (!Player.yt || !Player.ready) return;
   try {
-    const cur = Player.yt.getCurrentTime() || 0;
-    const dur = Player.yt.getDuration() || 0;
-    Player.yt.seekTo(Math.max(0, dur ? Math.min(dur - 1, cur + delta) : cur + delta), true);
+    const cur = PB.time() || 0;
+    const dur = PB.duration() || 0;
+    PB.seek(Math.max(0, dur ? Math.min(dur - 1, cur + delta) : cur + delta), true);
   } catch {}
 }
 /* When wrapped in the Android app, tell the native side whether audio is
@@ -845,7 +1074,7 @@ function notifyNativePlayback(playing) {
     const br = window.ARMusicNative;
     if (br && typeof br.setPlaying === 'function') {
       let dur = 0;
-      try { dur = Math.round((Player.yt && Player.yt.getDuration && Player.yt.getDuration()) || 0); } catch {}
+      try { dur = Math.round(PB.duration()); } catch {}
       br.setPlaying(!!playing, String(s.title || ''), String(s.artist || ''),
         String(s.thumbnail || ''), dur);
     }
@@ -867,7 +1096,7 @@ window.ARMusicCloseOverlay = function () {
 function commandPause() {
   if (Player.cued || !Player.yt || !Player.ready) return;
   Player.wantPlaying = false;
-  try { Player.yt.pauseVideo(); } catch {}
+  try { PB.pause(); } catch {}
 }
 
 /* Perintah dari notifikasi dan sesi media di aplikasi Android.
@@ -924,12 +1153,12 @@ function setupMediaSession() {
   on('seekforward', (d) => seekRelative(d && d.seekOffset ? d.seekOffset : 10));
   on('seekto', (d) => {
     if (!Player.yt || !d || d.fastSeek === true) return;
-    try { Player.yt.seekTo(d.seekTime, true); } catch {}
+    try { PB.seek(d.seekTime, true); } catch {}
   });
 }
 function isPlayingNow() {
   if (Player.cued || !Player.yt || !Player.ready) return false;
-  try { return Player.yt.getPlayerState() === YT.PlayerState.PLAYING; } catch { return false; }
+  try { return PB.state() === YT.PlayerState.PLAYING; } catch { return false; }
 }
 
 /* ---------- merebut kembali kepemilikan notifikasi ----------
@@ -1011,8 +1240,8 @@ function syncMediaSession(playing) {
   if (!('mediaSession' in navigator)) return;
   try { navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch {}
   try {
-    const dur = Player.yt && Player.yt.getDuration ? Player.yt.getDuration() : 0;
-    const cur = Player.yt && Player.yt.getCurrentTime ? Player.yt.getCurrentTime() : 0;
+    const dur = PB.duration();
+    const cur = PB.time();
     if (dur > 0 && cur >= 0 && cur <= dur && navigator.mediaSession.setPositionState) {
       navigator.mediaSession.setPositionState({ duration: dur, position: Math.min(cur, dur), playbackRate: Player.speed || 1 });
     }
@@ -1028,9 +1257,9 @@ function togglePlay() {
     return;
   }
   if (!Player.yt || !Player.ready) return;
-  const st = Player.yt.getPlayerState();
-  if (st === YT.PlayerState.PLAYING) { Player.wantPlaying = false; Player.yt.pauseVideo(); }
-  else { Player.wantPlaying = true; Player.yt.playVideo(); }
+  const st = PB.state();
+  if (st === YT.PlayerState.PLAYING) { Player.wantPlaying = false; PB.pause(); }
+  else { Player.wantPlaying = true; PB.play(); }
 }
 function playPendingSong() {
   const s = Player.pending;
@@ -1054,9 +1283,9 @@ function toggleNowPlayingPlay() {
 let _lastTick = null;
 function syncPlaybackUI() {
   if (!Player.yt || !Player.ready || !Player.current || !Player.yt.getDuration) return;
-  const cur = Player.yt.getCurrentTime() || 0;
+  const cur = PB.time() || 0;
   // local scrobble: accumulate listen time while playing
-  const playing = Player.yt.getPlayerState && Player.yt.getPlayerState() === YT.PlayerState.PLAYING;
+  const playing = PB.state() === YT.PlayerState.PLAYING;
   const now = Date.now();
   if (playing && _lastTick) Library.addListenTime(Player.current.videoId, Math.min(2, (now - _lastTick) / 1000));
   _lastTick = now;
@@ -1064,11 +1293,11 @@ function syncPlaybackUI() {
   if (playing && Player.sbEnabled && Player.sbSegments.length) {
     const seg = Player.sbSegments.find((g) => cur >= g.start && cur < g.end - 0.3);
     if (seg) {
-      Player.yt.seekTo(seg.end, true);
+      PB.seek(seg.end, true);
       toast(`⏩ Skipped ${seg.category.replace('_', ' ')} (SponsorBlock)`);
     }
   }
-  const dur = Player.yt.getDuration() || 0;
+  const dur = PB.duration() || 0;
   const pct = dur ? (cur / dur) * 100 : 0;
   $('#mini-progress-fill').style.width = pct + '%';
   const knob = $('.pb-knob');
@@ -1088,7 +1317,7 @@ function syncPlaybackUI() {
 setInterval(syncPlaybackUI, 400);
 
 function renderPlayButtons() {
-  const actuallyPlaying = Player.yt && Player.ready && Player.yt.getPlayerState && Player.yt.getPlayerState() === YT.PlayerState.PLAYING;
+  const actuallyPlaying = Player.ready && PB.state() === YT.PlayerState.PLAYING;
   const preview = isPreviewing();
   $('#mini-play').innerHTML = icon(actuallyPlaying ? 'i-pause' : 'i-play');
   $('#np-play').innerHTML = icon(!preview && actuallyPlaying ? 'i-pause' : 'i-play');
@@ -1112,7 +1341,7 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 function cycleSpeed() {
   const i = SPEEDS.indexOf(Player.speed);
   Player.speed = SPEEDS[(i + 1) % SPEEDS.length];
-  if (Player.yt && Player.ready) Player.yt.setPlaybackRate(Player.speed);
+  if (Player.yt && Player.ready) PB.rate(Player.speed);
   $('#np-speed span').textContent = Player.speed + '×';
   persistQueue();
   toast(`Speed: ${Player.speed}×`);
@@ -1131,7 +1360,7 @@ async function loadLyrics(song, { silent = false } = {}) {
   if (!song) return;
   const myReq = ++lyricsReqId;
   const durationSec = (() => {
-    if (Player.yt && Player.ready && Player.yt.getDuration) return Math.round(Player.yt.getDuration() || 0);
+    if (Player.ready) return Math.round(PB.duration());
     return 0;
   })();
   Player._lyricsDur = durationSec;
@@ -1159,7 +1388,7 @@ async function loadLyrics(song, { silent = false } = {}) {
 function maybeRetryLyrics() {
   const s = Player.current;
   if (!s || !Player.yt || !Player.ready || !Player.yt.getDuration) return;
-  const dur = Math.round(Player.yt.getDuration() || 0);
+  const dur = Math.round(PB.duration() || 0);
   if (!dur) return;
   const noLyrics = !Player.lyrics.synced && !Player.lyrics.plain;
   const durChanged = Math.abs(dur - (Player._lyricsDur || 0)) > 2;
@@ -1198,7 +1427,7 @@ function bumpLyricShift(delta) {
   lastLyricIdx = -2; // force the highlighter to repaint
   renderLyricSource();
   let cur = 0;
-  try { cur = (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0; } catch {}
+  try { cur = PB.time(); } catch {}
   updateLyricHighlight(cur);
   toast(next ? `Lyrics shifted ${next > 0 ? '+' : ''}${next.toFixed(1)}s` : 'Lyrics sync reset');
 }
@@ -1216,9 +1445,9 @@ function renderLyrics() {
   if (L.lines.length) {
     c.innerHTML = L.lines.map((l, i) => `<div class="lyric-line" data-i="${i}" data-t="${l.t}">${esc(l.text) || '♪'}</div>`).join('');
     $$('.lyric-line', c).forEach((el) => el.addEventListener('click', () => {
-      Player.yt.seekTo(Math.max(0, parseFloat(el.dataset.t) + lyricShift()));
+      PB.seek(Math.max(0, parseFloat(el.dataset.t) + lyricShift()));
       Player.wantPlaying = true;
-      Player.yt.playVideo();
+      PB.play();
     }));
   } else if (L.plain) {
     c.innerHTML = `<div class="lyric-plain">${esc(L.plain)}</div>`;
@@ -2499,7 +2728,7 @@ function restoreLibrary() {
             store.set('vol', d.settings.vol);
             $('#mini-volume').value = d.settings.vol;
             $('#np-volume').value = d.settings.vol;
-            if (Player.yt && Player.ready) Player.yt.setVolume(d.settings.vol);
+            if (Player.yt && Player.ready) PB.volume(d.settings.vol);
             updateVolumeIcon();
           }
           if (typeof d.settings.sb_on === 'boolean') {
@@ -2829,7 +3058,7 @@ function openSleepTimer() {
     if (m > 0) {
       Player.sleepTimer = setTimeout(() => {
         Player.wantPlaying = false; // or the background watchdog would resume it
-        Player.yt && Player.yt.pauseVideo();
+        Player.yt && PB.pause();
         Player.sleepTimer = null;
         $('#np-sleep') && $('#np-sleep').classList.remove('on');
         toast('Sleep timer: paused');
@@ -3097,9 +3326,9 @@ function isMuted() { return Number($('#mini-volume').value) === 0; }
 function applyVolume(v, remember) {
   const vol = Math.max(0, Math.min(100, Number(v) || 0));
   if (Player.yt && Player.ready) {
-    Player.yt.setVolume(vol);
+    PB.volume(vol);
     // the IFrame player keeps its own mute flag; volume 0 alone would not clear it
-    if (vol === 0) Player.yt.mute(); else Player.yt.unMute();
+    if (vol === 0) PB.mute(true); else PB.mute(false);
   }
   $('#mini-volume').value = vol;
   $('#np-volume').value = vol;
@@ -3131,8 +3360,8 @@ $('#mini-mute') && $('#mini-mute').addEventListener('click', toggleMute);
 $('#np-mute') && $('#np-mute').addEventListener('click', toggleMute);
 
 $('#mini-volume').addEventListener('input', (e) => {
-  if (Player.yt && Player.ready) Player.yt.setVolume(Number(e.target.value));
-  if (Player.yt && Player.ready) { if (Number(e.target.value) === 0) Player.yt.mute(); else Player.yt.unMute(); }
+  if (Player.yt && Player.ready) PB.volume(Number(e.target.value));
+  if (Player.yt && Player.ready) { if (Number(e.target.value) === 0) PB.mute(true); else PB.mute(false); }
   $('#np-volume').value = e.target.value;
   updateVolumeIcon();
 });
@@ -3141,8 +3370,8 @@ $('#mini-bar').addEventListener('click', (e) => {
   if (Player.cued || !Player.yt || !Player.ready) return;
   const r = e.currentTarget.getBoundingClientRect();
   const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-  const dur = Player.yt.getDuration() || 0;
-  if (dur) Player.yt.seekTo(frac * dur, true);
+  const dur = PB.duration() || 0;
+  if (dur) PB.seek(frac * dur, true);
 });
 $('#np-close').addEventListener('click', closeNowPlaying);
 $('#np-play').addEventListener('click', toggleNowPlayingPlay);
@@ -3194,8 +3423,8 @@ $('#mini-float').addEventListener('click', (e) => { e.stopPropagation(); toggleF
 $('#np-quality').addEventListener('click', toggleQuality);
 $('#np-sb').addEventListener('click', toggleSB);
 $('#np-volume').addEventListener('input', (e) => {
-  if (Player.yt) Player.yt.setVolume(Number(e.target.value));
-  if (Player.yt && Player.ready) { if (Number(e.target.value) === 0) Player.yt.mute(); else Player.yt.unMute(); }
+  if (Player.yt) PB.volume(Number(e.target.value));
+  if (Player.yt && Player.ready) { if (Number(e.target.value) === 0) PB.mute(true); else PB.mute(false); }
   $('#mini-volume').value = e.target.value;
   updateVolumeIcon();
 });
@@ -3231,8 +3460,8 @@ range.addEventListener('input', () => { seekDragging = true; });
 range.addEventListener('change', () => {
   seekDragging = false;
   if (isPreviewing() || !Player.yt || !Player.ready) return;
-  const dur = Player.yt.getDuration() || 0;
-  Player.yt.seekTo((range.value / 1000) * dur, true);
+  const dur = PB.duration() || 0;
+  PB.seek((range.value / 1000) * dur, true);
 });
 
 function switchNPTab(name) {
@@ -3316,7 +3545,7 @@ function widgetDocs() {
 }
 function syncFloatWidget() {
   const s = Player.current;
-  const playing = Player.yt && Player.ready && Player.yt.getPlayerState && Player.yt.getPlayerState() === YT.PlayerState.PLAYING;
+  const playing = Player.ready && PB.state() === YT.PlayerState.PLAYING;
   const ic = icon(playing ? 'i-pause' : 'i-play');
   for (const doc of widgetDocs()) {
     const art = doc.getElementById('fw-art');
@@ -3365,8 +3594,8 @@ function bindFloatWidget(rootDoc) {
     if (!Player.yt || !Player.ready) return;
     const r = e.currentTarget.getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const dur = Player.yt.getDuration() || 0;
-    if (dur) Player.yt.seekTo(frac * dur, true);
+    const dur = PB.duration() || 0;
+    if (dur) PB.seek(frac * dur, true);
   });
   root.querySelector('#fw-art')?.addEventListener('dblclick', () => {
     closeNowPlaying();
@@ -3483,7 +3712,7 @@ function currentLyricText() {
   if (!L) return '';
   if (L.lines && L.lines.length) {
     let cur = 0;
-    try { cur = (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0; } catch {}
+    try { cur = PB.time(); } catch {}
     let idx = -1;
     for (let i = 0; i < L.lines.length; i++) {
       if (cur >= L.lines[i].t - 0.2) idx = i;
@@ -3902,7 +4131,7 @@ function resumeIfBackgroundPause(state) {
   if (state !== YT.PlayerState.PAUSED) return;
   if (bgResumeTries >= BG_RESUME_MAX) return;
   bgResumeTries++;
-  try { Player.yt.playVideo(); } catch {}
+  try { PB.play(); } catch {}
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -3923,9 +4152,9 @@ document.addEventListener('visibilitychange', () => {
   // the page is allowed to play again now that it is visible, so carry on from
   // where it stopped instead of making someone hunt for the play button.
   let st = -1;
-  try { st = Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch {}
+  try { st = PB.state(); } catch {}
   if (Player.wantPlaying && !Player.cued && st === YT.PlayerState.PAUSED) {
-    try { Player.yt.playVideo(); } catch {}
+    try { PB.play(); } catch {}
     // Say why it happened, once on this device. Nagging about it every time
     // someone checks a message would be worse than the silence was.
     if (!bgHintShown && !store.get('bgnote', false) && isPhoneDefaultMode()) {
@@ -3944,10 +4173,10 @@ setInterval(() => {
   if (!Player.wantPlaying || Player.cued) return;
   if (bgResumeTries >= BG_RESUME_MAX) return;
   let st = -1;
-  try { st = Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch { return; }
+  try { st = PB.state(); } catch { return; }
   if (st === YT.PlayerState.PAUSED) {
     bgResumeTries++;
-    try { Player.yt.playVideo(); } catch {}
+    try { PB.play(); } catch {}
   } else if (st === YT.PlayerState.PLAYING) {
     bgResumeTries = 0;
   }
