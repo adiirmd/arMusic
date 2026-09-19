@@ -288,6 +288,7 @@ const Player = {
   cued: false,
   wantPlaying: false, // user intent, so a background pause can be told apart from a deliberate one
   pending: null, // song shown in Now Playing while previous track keeps playing
+  siap: null, // { videoId, persen } selagi berkas audionya disiapkan
   loadId: 0,
   get current() { return this.queue[this.index] || null; },
 };
@@ -453,26 +454,49 @@ const Aliran = {
      tingkat kesiapannya sempat mencapai tiga dan bertahan. Yang meruntuhkannya
      adalah loncatan posisi ke tengah lagu, bukan pengalirannya. Jadi
      berkasnya dialirkan seperti biasa, dan yang dihindari adalah meloncat. */
-  siapkan(videoId) {
+  /* Dua bentuk berkas dicoba berurutan. m4a lebih dulu karena itu bentuk yang
+     sudah dipakai sumbernya, jadi berpeluang tidak perlu diubah sama sekali
+     dan selesai jauh lebih cepat. Kalau layanannya tidak menyediakan, baru
+     mp3 seperti biasa. Percobaan pertama dibatasi waktunya supaya kalau
+     memang tidak tersedia, tidak menghabiskan kesabaran sebelum yang kedua
+     sempat dicoba. */
+  urutanFormat: [
+    { nama: 'm4a', maksTanya: 15 },
+    { nama: 'mp3', maksTanya: 45 },
+  ],
+
+  siapkan(videoId, kabarKemajuan) {
     if (!videoId) return Promise.resolve(null);
     if (this.alamat.has(videoId)) return Promise.resolve(this.alamat.get(videoId));
     if (this.kerja.has(videoId)) return this.kerja.get(videoId);
     if (this.gagal.has(videoId)) return Promise.resolve(null);
     const p = (async () => {
-      const mulai = Date.now();
       try {
-        const st = await api(`/api/download-start?videoId=${encodeURIComponent(videoId)}`);
-        if (!st.progressUrl) throw new Error('tanpa alamat kemajuan');
-        for (let i = 0; i < 48; i++) {
-          await new Promise((r) => setTimeout(r, 2000));
-          const d = await api(`/api/download-progress?progressUrl=${encodeURIComponent(st.progressUrl)}`);
-          if (d.done && d.url) {
-            this.alamat.set(videoId, d.url);
-            Diag.add('aliran', 'siap ' + videoId + ' dalam ' + Math.round((Date.now() - mulai) / 1000) + 's');
-            return d.url;
+        for (const f of this.urutanFormat) {
+          const mulai = Date.now();
+          try {
+            const st = await api(`/api/download-start?format=${f.nama}&videoId=${encodeURIComponent(videoId)}`);
+            if (!st.progressUrl) throw new Error('tanpa alamat kemajuan');
+            for (let i = 0; i < f.maksTanya; i++) {
+              await new Promise((r) => setTimeout(r, 2000));
+              const d = await api(`/api/download-progress?progressUrl=${encodeURIComponent(st.progressUrl)}`);
+              if (kabarKemajuan) {
+                const mentah = Number(d.progress) || 0;
+                kabarKemajuan(Math.min(99, mentah > 100 ? Math.round(mentah / 10) : Math.round(mentah)));
+              }
+              if (d.done && d.url) {
+                this.alamat.set(videoId, d.url);
+                Diag.add('aliran', 'siap ' + videoId + ' sebagai ' + f.nama
+                  + ' dalam ' + Math.round((Date.now() - mulai) / 1000) + 's');
+                return d.url;
+              }
+            }
+            throw new Error('kelamaan');
+          } catch (e) {
+            Diag.add('aliran', f.nama + ' gagal untuk ' + videoId + ': ' + String((e && e.message) || e).slice(0, 40));
           }
         }
-        throw new Error('kelamaan');
+        throw new Error('semua bentuk berkas gagal');
       } catch (e) {
         this.gagal.add(videoId);
         Diag.add('aliran-gagal', videoId + ' ' + String((e && e.message) || e).slice(0, 60));
@@ -522,43 +546,6 @@ function lepasMesinAudio(lanjutkanDiBingkai) {
 
 /* Pengoperan. Dilakukan hanya kalau lagunya masih lagu yang sama, karena
    pencariannya berjalan lama dan pendengar bisa saja sudah pindah lagu. */
-/* Batas posisi yang masih dianggap awal lagu. Di atas ini pengoperan tidak
-   dilakukan, karena satu satunya cara mengejar posisinya adalah meloncat, dan
-   meloncat itu yang terbukti membuat berkasnya macet. */
-const OPER_MAKS_DETIK = 2;
-
-function operKeAudio(videoId, url) {
-  const a = elemenAudio();
-  const sedangJalan = PB.state() === YT.PlayerState.PLAYING;
-  const detik = PB.time();          // masih dari bingkai, PB.vid belum diisi
-  if (detik > OPER_MAKS_DETIK) {
-    /* Lagunya sudah terlanjur jauh. Tidak apa apa: alamatnya sudah tersimpan,
-       dan lagu berikutnya akan dioper tepat di awal tanpa menunggu apa pun,
-       karena alamatnya sudah disiapkan sejak lagu ini mulai. */
-    Diag.add('mesin', 'ditunda, lagu sudah di detik ' + Math.round(detik));
-    return;
-  }
-
-  Diag.add('mesin', 'memasang berkas, hidden=' + document.hidden);
-  a.src = url;
-  const kabar = (nama) => () => Diag.add('audio', nama + ' | siap=' + a.readyState + ' hidden=' + document.hidden);
-  for (const n of ['loadedmetadata', 'canplay', 'stalled', 'waiting', 'abort']) {
-    a.addEventListener(n, kabar(n), { once: true });
-  }
-
-  const nyalakan = () => {
-    if (!Player.current || Player.current.videoId !== videoId) return;
-    try { a.playbackRate = Player.speed || 1; } catch {}
-    PB.vid = videoId;
-    if (sedangJalan || Player.wantPlaying) { const r = a.play(); if (r && r.catch) r.catch(() => {}); }
-    try { Player.yt.pauseVideo(); } catch {}
-    Diag.add('mesin', 'dioper ke audio, mulai dari awal lagu');
-    assertMediaSession();
-  };
-  a.addEventListener('canplay', nyalakan, { once: true });
-  try { a.load(); } catch {}
-}
-
 /* Jaring pengaman. Kalau berkasnya ternyata tetap tersendat di perangkat
    tertentu, jangan biarkan lagunya mati diam diam: kembalikan ke bingkai
    YouTube di posisi yang sama. Bingkai itu tidak bisa jalan di latar
@@ -574,34 +561,6 @@ setInterval(() => {
     lepasMesinAudio(true);
   }
 }, 1200);
-
-/* Dipanggil tiap kali lagu mulai. Tidak menunggu apa pun: lagunya sudah
-   berbunyi dari bingkai sejak tadi, ini cuma menyiapkan penggantinya. */
-async function siapkanMesinAudio(song) {
-  if (!song || !song.videoId) return;
-  if (!pakaiMesinAudio()) { Diag.add('mesin', 'dilewati, bukan perangkat sentuh'); return; }
-  const videoId = song.videoId;
-
-  /* Lagu berikutnya disiapkan sekarang juga, bukan setelah lagu ini selesai
-     disiapkan. Ini bagian yang menentukan cepat lambatnya terasa: penyiapan
-     memakan belasan detik, jadi kalau baru dimulai saat lagunya tiba,
-     pengoperan selalu telat dan selalu jatuh di tengah lagu. Dimulai dari
-     sekarang, berkasnya sudah menunggu jauh sebelum lagunya sampai, dan
-     pengoperan terjadi di detik pertama tanpa ada yang menunggu.
-     Hanya satu lagu ke depan, karena tiap penyiapan berarti satu berkas. */
-  const nanti = Player.queue[Player.index + 1];
-  if (nanti && nanti.videoId && !Aliran.alamat.has(nanti.videoId)) Aliran.siapkan(nanti.videoId);
-
-  Diag.add('mesin', 'menyiapkan berkas audio ' + videoId);
-  const url = await Aliran.siapkan(videoId);
-  if (!url) { Diag.add('mesin', 'tidak ada berkas untuk ' + videoId); return; }
-  if (!Player.current || Player.current.videoId !== videoId) {
-    Diag.add('mesin', 'berkas datang tapi lagunya sudah ganti');
-    return;
-  }
-  if (PB.pakaiAudio) { Diag.add('mesin', 'sudah dipegang elemen audio'); return; }
-  operKeAudio(videoId, url);
-}
 
 window.onYouTubeIframeAPIReady = () => {
   Player.yt = new YT.Player('yt-player', {
@@ -825,6 +784,75 @@ function moveQueued(i, dir) {
   renderQueue();
 }
 
+/* Jalur lama: bingkai YouTube yang memutar. Dipakai di desktop, di dalam
+   aplikasi Android, dan sebagai cadangan kalau berkas audionya gagal
+   disiapkan. */
+function mulaiLewatBingkai(s, loadId) {
+  const coba = () => {
+    if (loadId !== Player.loadId) return;
+    if (!Player.ready) return setTimeout(coba, 300);
+    Player.yt.loadVideoById({ videoId: s.videoId, suggestedQuality: suggestedQuality() });
+    PB.rate(Player.speed);
+    Player.wantPlaying = true;
+    PB.play();
+    applyPlaybackQuality();
+    setTimeout(applyPlaybackQuality, 400);
+    setTimeout(applyPlaybackQuality, 1600);
+  };
+  coba();
+}
+
+/* Jalur perangkat sentuh: berkas audionya disiapkan dulu, baru diputar.
+   Penyiapannya kelihatan, lengkap dengan kemajuannya, supaya tidak terasa
+   seperti aplikasi yang diam saja. Lagu berikutnya disiapkan sejak sekarang,
+   jadi begitu lagu ini habis, lagu berikutnya mulai seketika tanpa penantian
+   sama sekali. */
+async function mulaiLewatAudio(s, loadId) {
+  const videoId = s.videoId;
+
+  const nanti = Player.queue[Player.index + 1];
+  if (nanti && nanti.videoId && !Aliran.alamat.has(nanti.videoId)) Aliran.siapkan(nanti.videoId);
+
+  if (!Aliran.alamat.has(videoId)) {
+    Player.siap = { videoId, persen: 0 };
+    renderPlayButtons();
+  }
+  Diag.add('mesin', 'menyiapkan ' + videoId + (Aliran.alamat.has(videoId) ? ' (sudah ada)' : ''));
+
+  const url = await Aliran.siapkan(videoId, (persen) => {
+    if (Player.siap && Player.siap.videoId === videoId) Player.siap.persen = persen;
+  });
+
+  if (loadId !== Player.loadId) return;      // pendengar sudah pindah lagu
+  Player.siap = null;
+
+  if (!url) {
+    Diag.add('mesin', 'gagal disiapkan, memakai bingkai sebagai cadangan');
+    toast('Mode latar belakang tidak tersedia untuk lagu ini');
+    mulaiLewatBingkai(s, loadId);
+    return;
+  }
+  putarBerkas(videoId, url);
+}
+
+/* Menyalakan elemen audio dari awal lagu. Tidak pernah meloncat posisi,
+   karena loncatan itu yang terbukti membuat berkasnya macet. */
+function putarBerkas(videoId, url) {
+  const a = elemenAudio();
+  Diag.add('mesin', 'memutar berkas, hidden=' + document.hidden);
+  const kabar = (nama) => () => Diag.add('audio', nama + ' | siap=' + a.readyState + ' hidden=' + document.hidden);
+  for (const n of ['loadedmetadata', 'canplay', 'playing', 'stalled', 'waiting', 'abort']) {
+    a.addEventListener(n, kabar(n), { once: true });
+  }
+  a.src = url;
+  PB.vid = videoId;
+  try { a.playbackRate = Player.speed || 1; } catch {}
+  try { Player.yt.pauseVideo(); } catch {}
+  const r = a.play();
+  if (r && r.catch) r.catch((e) => Diag.add('mesin', 'putar ditolak ' + String((e && e.name) || e)));
+  assertMediaSession();
+}
+
 function startCurrent() {
   Player.cued = false;
   Player.pending = null;
@@ -835,21 +863,20 @@ function startCurrent() {
   // yang baru.
   lepasMesinAudio(false);
   const loadId = ++Player.loadId;
-  const tryPlay = () => {
-    if (loadId !== Player.loadId) return;
-    if (!Player.ready) return setTimeout(tryPlay, 300);
-    Player.yt.loadVideoById({ videoId: s.videoId, suggestedQuality: suggestedQuality() });
-    PB.rate(Player.speed);
-    Player.wantPlaying = true;
-    PB.play();
-    applyPlaybackQuality();
-    setTimeout(applyPlaybackQuality, 400);
-    setTimeout(applyPlaybackQuality, 1600);
-  };
-  tryPlay();
-  // Menyiapkan mesin audio untuk perangkat sentuh. Tidak ditunggu, lagunya
-  // sudah berbunyi dari bingkai.
-  siapkanMesinAudio(s);
+  Player.wantPlaying = true;
+
+  /* Di perangkat sentuh, yang memutar adalah elemen audio, bukan bingkai
+     YouTube. Bingkainya cuma cadangan kalau berkasnya gagal disiapkan.
+
+     Ini beda dari percobaan sebelumnya yang memulai dari bingkai lalu
+     mengoper belakangan. Cara itu selalu kalah cepat dengan orang yang
+     menekan putar lalu langsung pindah aplikasi, karena penyiapan berkasnya
+     makan belasan detik dan selama itu yang berbunyi masih bingkai, yang
+     memang tidak boleh jalan di latar belakang. Sekarang lagunya tidak mulai
+     sampai berkasnya siap, jadi begitu terdengar, saat itu juga sudah boleh
+     ditinggal. */
+  if (pakaiMesinAudio()) mulaiLewatAudio(s, loadId);
+  else mulaiLewatBingkai(s, loadId);
   Library.pushHistory(s);
   maybeExtendQueue();
   Player.lyrics = { synced: null, plain: null, source: null, lines: [] };
@@ -1298,6 +1325,20 @@ function syncMediaSession(playing) {
 }
 function togglePlay() {
   if (!Player.current) return;
+  /* Ditekan selagi berkasnya disiapkan berarti batal. Tanpa ini, tombolnya
+     malah menyalakan bingkai YouTube, dan pendengar berakhir dengan dua lagu
+     yang saling menimpa begitu penyiapannya selesai. Penyiapan yang sedang
+     berjalan tetap dibiarkan selesai diam diam, hasilnya disimpan, jadi
+     kalau diputar lagi sebentar kemudian sudah tidak perlu menunggu. */
+  if (Player.siap) {
+    Player.siap = null;
+    Player.wantPlaying = false;
+    Player.loadId++;
+    Diag.add('mesin', 'penyiapan dibatalkan pendengar');
+    renderPlayButtons();
+    syncPlaybackUI();
+    return;
+  }
   if (Player.cued) {
     const s = Player.current;
     const hasRadio = Player.queue.some((q, i) => i > Player.index && !q._user);
@@ -1331,6 +1372,23 @@ function toggleNowPlayingPlay() {
 /* progress loop */
 let _lastTick = null;
 function syncPlaybackUI() {
+  /* Selagi berkasnya disiapkan belum ada yang berbunyi, jadi tidak ada waktu
+     dan durasi untuk ditampilkan. Yang ditampilkan kemajuan penyiapannya,
+     supaya jelas aplikasinya sedang bekerja dan bukan diam mogok. */
+  if (Player.siap) {
+    const p = Math.max(0, Math.min(99, Player.siap.persen || 0));
+    $('#mini-progress-fill').style.width = p + '%';
+    const knob = $('.pb-knob');
+    if (knob) knob.style.left = p + '%';
+    $('#mini-cur').textContent = 'Menyiapkan';
+    $('#mini-dur').textContent = p + '%';
+    if (!isPreviewing() && !seekDragging) {
+      $('#np-range').value = p * 10;
+      $('#np-cur').textContent = 'Menyiapkan';
+      $('#np-dur').textContent = p + '%';
+    }
+    return;
+  }
   if (!Player.yt || !Player.ready || !Player.current || !Player.yt.getDuration) return;
   const cur = PB.time() || 0;
   // local scrobble: accumulate listen time while playing
@@ -1366,7 +1424,7 @@ function syncPlaybackUI() {
 setInterval(syncPlaybackUI, 400);
 
 function renderPlayButtons() {
-  const actuallyPlaying = Player.ready && PB.state() === YT.PlayerState.PLAYING;
+  const actuallyPlaying = !!Player.siap || (Player.ready && PB.state() === YT.PlayerState.PLAYING);
   const preview = isPreviewing();
   $('#mini-play').innerHTML = icon(actuallyPlaying ? 'i-pause' : 'i-play');
   $('#np-play').innerHTML = icon(!preview && actuallyPlaying ? 'i-pause' : 'i-play');

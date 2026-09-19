@@ -517,11 +517,21 @@ const LOADER_API = 'https://loader.to/ajax/download.php';
 const DL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 /* start a conversion job: returns { jobId, progressUrl } */
+/* Bentuk berkasnya boleh diminta. Unduhan tetap meminta mp3 seperti dulu,
+   sedangkan pemutaran di perangkat sentuh meminta m4a lebih dulu karena itu
+   bentuk yang sudah dipakai sumbernya, jadi berpeluang tidak perlu diubah
+   sama sekali dan selesai jauh lebih cepat. Daftarnya dibatasi, bukan
+   diteruskan apa adanya, supaya isi permintaan orang tidak ikut masuk ke
+   alamat yang dipanggil. */
+const FORMAT_BOLEH = new Set(['mp3', 'm4a', 'webm', 'opus']);
+
 app.get('/api/download-start', async (req, res) => {
   const videoId = String(req.query.videoId || '');
   if (!/^[\w-]{6,20}$/.test(videoId)) return res.status(400).json({ error: 'bad id' });
+  const minta = String(req.query.format || 'mp3');
+  const format = FORMAT_BOLEH.has(minta) ? minta : 'mp3';
   try {
-    const u = `${LOADER_API}?format=mp3&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}`;
+    const u = `${LOADER_API}?format=${format}&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}`;
     const r = await fetch(u, { headers: { 'User-Agent': DL_UA, Referer: 'https://loader.to/' } });
     if (!r.ok) throw new Error(`start -> ${r.status}`);
     const d = await r.json();
