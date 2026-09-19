@@ -3,9 +3,8 @@
 
     <!--
         Izin sengaja dijaga seminimal mungkin. Tidak ada akses lokasi,
-        kontak, penyimpanan, kamera, mikrofon, maupun QUERY_ALL_PACKAGES.
-        Daftar pendek inilah yang membuat aplikasi tidak terlihat
-        mencurigakan saat dipindai.
+        kontak, kamera, mikrofon, maupun QUERY_ALL_PACKAGES. Daftar pendek
+        inilah yang membuat aplikasi tidak terlihat mencurigakan saat dipindai.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -14,6 +13,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Android 13+ butuh ini untuk notifikasi pemutar -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+        Hanya untuk menyimpan lagu yang diunduh ke folder Musik pada Android 9
+        ke bawah. Sejak Android 10 pengunduh bawaan sistem yang menuliskannya,
+        jadi izin ini tidak diminta sama sekali di perangkat masa kini.
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:name=".ARMusicApp"

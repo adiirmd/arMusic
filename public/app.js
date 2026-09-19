@@ -1575,10 +1575,27 @@ function downloadFilename(song) {
   return `${raw.slice(0, 80) || 'track'}.mp3`;
 }
 function clickDownload(href, name) {
+  /* Di dalam aplikasi Android, serahkan ke sisi Android. WebView tidak
+     mengunduh apa pun sendiri, dan tanpa jalur ini tombol unduhnya benar benar
+     tidak melakukan apa apa. Nama berkasnya ikut dikirim supaya yang tersimpan
+     bernama judul lagunya, bukan nama acak dari server pengonversi. */
+  try {
+    if (window.ARMusicNative && typeof ARMusicNative.download === 'function') {
+      ARMusicNative.download(String(href), String(name || ''));
+      return;
+    }
+  } catch {}
+
   const aEl = document.createElement('a');
   aEl.href = href;
   aEl.download = name || '';
-  aEl.target = '_blank';
+  /* Sengaja tanpa target _blank. Membuka jendela baru berarti meminta izin
+     yang sudah kedaluwarsa: konversinya memakan belasan detik, dan setelah
+     penantian selama itu klik ini tidak lagi dianggap berasal dari sentuhan
+     orang, jadi browser ponsel memblokirnya sebagai jendela sembulan. Itulah
+     sebabnya unduhan di ponsel berhenti tanpa kabar setelah konversi selesai.
+     Berkasnya sendiri dikirim sebagai lampiran, jadi halaman ini tidak akan
+     ikut berpindah ke mana mana. */
   aEl.rel = 'noopener noreferrer';
   document.body.appendChild(aEl);
   aEl.click();
@@ -1610,16 +1627,12 @@ async function downloadSong(song) {
     if (!url) throw new Error('timeout');
     toast(`Downloading "${song.title}"…`);
     const name = downloadFilename(song);
-    try {
-      const r = await fetch(url, { mode: 'cors' });
-      if (!r.ok) throw new Error('fetch');
-      const blob = await r.blob();
-      const obj = URL.createObjectURL(blob);
-      clickDownload(obj, name);
-      setTimeout(() => URL.revokeObjectURL(obj), 8000);
-    } catch {
-      clickDownload(url, name);
-    }
+    /* Dulu berkasnya diambil dulu jadi satu kesatuan supaya bisa disimpan
+       dengan nama yang benar. Server pengonversinya menolak permintaan lintas
+       asal, jadi langkah itu tidak pernah sekali pun berhasil dan selalu
+       jatuh ke cadangan di bawahnya. Sekarang langsung saja, tanpa permintaan
+       yang sudah dipastikan gagal. */
+    clickDownload(url, name);
     toast('Download started');
   } catch (e) {
     toast('Download failed — try again later');

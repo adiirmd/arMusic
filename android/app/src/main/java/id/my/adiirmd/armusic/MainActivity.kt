@@ -2,19 +2,23 @@ package id.my.adiirmd.armusic
 
 import android.annotation.SuppressLint
 import android.Manifest
+import android.app.DownloadManager
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
+import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
@@ -36,6 +40,19 @@ class MainActivity : AppCompatActivity() {
      * simply does not exist and the call is skipped.
      */
     inner class NativeBridge {
+        /**
+         * Unduhan. WebView tidak mengunduh apa pun sendiri: mengeklik tautan
+         * unduh di dalamnya tidak menghasilkan apa apa, dan halaman tidak
+         * pernah diberi kabar bahwa tidak terjadi apa apa. Karena itu halaman
+         * menyerahkannya ke sini, lengkap dengan nama berkas yang diinginkan,
+         * supaya yang tersimpan bernama judul lagunya dan bukan nama acak dari
+         * server pengonversi.
+         */
+        @JavascriptInterface
+        fun download(url: String, name: String) {
+            runOnUiThread { unduh(url, name) }
+        }
+
         @JavascriptInterface
         fun setPlaying(playing: Boolean, title: String, artist: String, art: String, duration: Int) {
             runOnUiThread {
@@ -102,6 +119,14 @@ class MainActivity : AppCompatActivity() {
 
         keepRendererHot()
         web.addJavascriptInterface(NativeBridge(), "ARMusicNative")
+
+        // Jaring pengaman. Jalur utamanya lewat NativeBridge.download, tetapi
+        // kalau ada unduhan yang terpicu dengan cara lain, tanpa pendengar ini
+        // WebView membuangnya diam diam dan tidak ada yang pernah tahu.
+        web.setDownloadListener { url, _, disposisi, jenis, _ ->
+            unduh(url, URLUtil.guessFileName(url, disposisi, jenis))
+        }
+
         web.webChromeClient = WebChromeClient()
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
@@ -175,6 +200,49 @@ class MainActivity : AppCompatActivity() {
         // terlihat, dan audionya bisa tersendat di HP dengan memori sempit.
         runCatching {
             web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+        }
+    }
+
+    /**
+     * Menyerahkan berkasnya ke pengunduh bawaan Android, bukan mengunduhnya
+     * sendiri. Dengan begitu ada notifikasi kemajuan, unduhannya lanjut walau
+     * aplikasi ditutup, dan berkasnya masuk ke folder Musik seperti unduhan
+     * lain. Batasan skemanya penting: tanpa itu halaman bisa menyuruh membuka
+     * berkas apa pun di perangkat lewat skema file atau content.
+     */
+    private fun unduh(url: String, namaDiminta: String) {
+        val uri = runCatching { Uri.parse(url) }.getOrNull()
+        if (uri == null || (uri.scheme != "https" && uri.scheme != "http")) {
+            Toast.makeText(this, "Tautan unduhan tidak dikenali", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Pemisah folder harus disingkirkan, atau berkasnya bisa mendarat di
+        // luar folder tujuan.
+        val nama = namaDiminta.substringAfterLast('/').substringAfterLast('\\')
+            .ifBlank { "armusic.mp3" }
+
+        val hasil = runCatching {
+            val minta = DownloadManager.Request(uri)
+                .setTitle(nama)
+                .setDescription("AR Music")
+                .setMimeType("audio/mpeg")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+            runCatching {
+                minta.setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, nama)
+            }.onFailure {
+                // Android lawas menuntut izin menulis untuk folder umum. Kalau
+                // ditolak, tetap terunduh, hanya tempatnya milik aplikasi ini.
+                minta.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_MUSIC, nama)
+            }
+            getSystemService(DownloadManager::class.java).enqueue(minta)
+        }
+
+        if (hasil.isSuccess) {
+            Toast.makeText(this, "Mengunduh $nama", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Unduhan gagal dimulai", Toast.LENGTH_LONG).show()
         }
     }
 
