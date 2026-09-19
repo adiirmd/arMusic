@@ -288,7 +288,6 @@ const Player = {
   cued: false,
   wantPlaying: false, // user intent, so a background pause can be told apart from a deliberate one
   pending: null, // song shown in Now Playing while previous track keeps playing
-  siap: null, // { videoId, persen } selagi berkas audionya disiapkan
   loadId: 0,
   get current() { return this.queue[this.index] || null; },
 };
@@ -375,192 +374,28 @@ function toggleQuality() {
  * dari bilah kemajuan sampai lirik dan SponsorBlock, tidak perlu tahu mesin
  * mana yang sedang bunyi. */
 const PB = {
-  el: null,
-  vid: null,   // lagu yang sedang dipegang elemen audio, null berarti bingkai yang memegang
-  get pakaiAudio() {
-    return !!(this.el && this.vid && Player.current && Player.current.videoId === this.vid);
-  },
+  /* Pembungkus tipis di atas pemutar YouTube. Bentuknya meniru pemutar itu,
+     termasuk angka keadaannya, jadi sisa aplikasi memanggil satu tempat saja.
+     Sempat ada mesin kedua di sini, elemen audio milik halaman sendiri, untuk
+     mengejar pemutaran di latar belakang. Itu sudah dicabut, alasannya dicatat
+     di bagian bawah berkas ini. */
+  get pakaiAudio() { return false; },
   state() {
-    if (this.pakaiAudio) {
-      const a = this.el;
-      if (a.ended) return 0;                 // ENDED
-      if (a.paused) return 2;                // PAUSED
-      if (a.readyState < 3) return 3;        // BUFFERING
-      return 1;                              // PLAYING
-    }
     try { return Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch { return -1; }
   },
   time() {
-    if (this.pakaiAudio) return this.el.currentTime || 0;
     try { return (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0; } catch { return 0; }
   },
   duration() {
-    if (this.pakaiAudio && isFinite(this.el.duration) && this.el.duration > 0) return this.el.duration;
     try { return (Player.yt && Player.yt.getDuration && Player.yt.getDuration()) || 0; } catch { return 0; }
   },
-  seek(t) {
-    if (this.pakaiAudio) { try { this.el.currentTime = Math.max(0, t); } catch {} return; }
-    try { Player.yt.seekTo(t, true); } catch {}
-  },
-  play() {
-    if (this.pakaiAudio) { const r = this.el.play(); if (r && r.catch) r.catch(() => {}); return; }
-    try { Player.yt.playVideo(); } catch {}
-  },
-  pause() {
-    if (this.pakaiAudio) { try { this.el.pause(); } catch {} return; }
-    try { Player.yt.pauseVideo(); } catch {}
-  },
-  /* Setelan berikut dikenakan pada dua duanya, bukan hanya yang sedang bunyi,
-     supaya mesin yang menyusul tidak mulai dengan suara atau kecepatan lama. */
-  volume(v) {
-    const n = Math.max(0, Math.min(100, Number(v) || 0));
-    if (this.el) this.el.volume = n / 100;
-    try { Player.yt.setVolume(n); } catch {}
-  },
-  mute(on) {
-    if (this.el) this.el.muted = !!on;
-    try { if (on) Player.yt.mute(); else Player.yt.unMute(); } catch {}
-  },
-  rate(r) {
-    if (this.el) { try { this.el.playbackRate = r; } catch {} }
-    try { Player.yt.setPlaybackRate(r); } catch {}
-  },
+  seek(t) { try { Player.yt.seekTo(t, true); } catch {} },
+  play() { try { Player.yt.playVideo(); } catch {} },
+  pause() { try { Player.yt.pauseVideo(); } catch {} },
+  volume(v) { try { Player.yt.setVolume(Math.max(0, Math.min(100, Number(v) || 0))); } catch {} },
+  mute(on) { try { if (on) Player.yt.mute(); else Player.yt.unMute(); } catch {} },
+  rate(r) { try { Player.yt.setPlaybackRate(r); } catch {} },
 };
-
-/* Perangkat yang suaranya dipindahkan. Semua perangkat sentuh ikut, jadi
-   ponsel Android, tablet, dan ponsel sistem lain, sesuai permintaan. Di dalam
-   aplikasi Android tidak perlu, karena di sana bingkai YouTube memang sudah
-   boleh jalan di latar belakang. */
-function pakaiMesinAudio() {
-  return isHandheld() && !document.documentElement.classList.contains('in-app');
-}
-
-/* Pencarian alamat berkas audio. Yang dipakai adalah dua alamat yang sudah
-   ada untuk fitur unduh, jadi tidak ada yang perlu ditambahkan di server.
-   Hasilnya diingat per lagu supaya satu lagu tidak pernah diminta dua kali,
-   dan kegagalan juga diingat supaya tidak dicoba terus menerus. */
-const Aliran = {
-  alamat: new Map(),
-  kerja: new Map(),
-  gagal: new Set(),
-
-  /* Meminta pengonversi menyiapkan berkasnya, lalu menanyakan kemajuannya
-     sampai selesai. Yang dihasilkan alamat berkasnya, bukan isinya.
-
-     Sempat dicoba mengunduh isinya sekalian sampai utuh sebelum dipakai, dan
-     itu terlalu lama: belasan detik konversi ditambah belasan megabyte
-     unduhan sebelum ada yang terjadi. Ternyata tidak perlu. Catatan
-     pemeriksaan di perangkat menunjukkan pengaliran biasa sebenarnya sanggup,
-     tingkat kesiapannya sempat mencapai tiga dan bertahan. Yang meruntuhkannya
-     adalah loncatan posisi ke tengah lagu, bukan pengalirannya. Jadi
-     berkasnya dialirkan seperti biasa, dan yang dihindari adalah meloncat. */
-  /* Dua bentuk berkas dicoba berurutan. m4a lebih dulu karena itu bentuk yang
-     sudah dipakai sumbernya, jadi berpeluang tidak perlu diubah sama sekali
-     dan selesai jauh lebih cepat. Kalau layanannya tidak menyediakan, baru
-     mp3 seperti biasa. Percobaan pertama dibatasi waktunya supaya kalau
-     memang tidak tersedia, tidak menghabiskan kesabaran sebelum yang kedua
-     sempat dicoba. */
-  urutanFormat: [
-    { nama: 'm4a', maksTanya: 15 },
-    { nama: 'mp3', maksTanya: 45 },
-  ],
-
-  siapkan(videoId, kabarKemajuan) {
-    if (!videoId) return Promise.resolve(null);
-    if (this.alamat.has(videoId)) return Promise.resolve(this.alamat.get(videoId));
-    if (this.kerja.has(videoId)) return this.kerja.get(videoId);
-    if (this.gagal.has(videoId)) return Promise.resolve(null);
-    const p = (async () => {
-      try {
-        for (const f of this.urutanFormat) {
-          const mulai = Date.now();
-          try {
-            const st = await api(`/api/download-start?format=${f.nama}&videoId=${encodeURIComponent(videoId)}`);
-            if (!st.progressUrl) throw new Error('tanpa alamat kemajuan');
-            for (let i = 0; i < f.maksTanya; i++) {
-              await new Promise((r) => setTimeout(r, 2000));
-              const d = await api(`/api/download-progress?progressUrl=${encodeURIComponent(st.progressUrl)}`);
-              if (kabarKemajuan) {
-                const mentah = Number(d.progress) || 0;
-                kabarKemajuan(Math.min(99, mentah > 100 ? Math.round(mentah / 10) : Math.round(mentah)));
-              }
-              if (d.done && d.url) {
-                this.alamat.set(videoId, d.url);
-                Diag.add('aliran', 'siap ' + videoId + ' sebagai ' + f.nama
-                  + ' dalam ' + Math.round((Date.now() - mulai) / 1000) + 's');
-                return d.url;
-              }
-            }
-            throw new Error('kelamaan');
-          } catch (e) {
-            Diag.add('aliran', f.nama + ' gagal untuk ' + videoId + ': ' + String((e && e.message) || e).slice(0, 40));
-          }
-        }
-        throw new Error('semua bentuk berkas gagal');
-      } catch (e) {
-        this.gagal.add(videoId);
-        Diag.add('aliran-gagal', videoId + ' ' + String((e && e.message) || e).slice(0, 60));
-        return null;
-      } finally {
-        this.kerja.delete(videoId);
-      }
-    })();
-    this.kerja.set(videoId, p);
-    return p;
-  },
-};
-
-function elemenAudio() {
-  if (PB.el) return PB.el;
-  const a = document.createElement('audio');
-  a.preload = 'auto';
-  a.playsInline = true;
-  a.style.display = 'none';
-  a.volume = Math.max(0, Math.min(100, Number(store.get('vol', 100)))) / 100;
-  a.addEventListener('ended', () => { if (PB.pakaiAudio) nextTrack(true); });
-  a.addEventListener('play', () => { Player.wantPlaying = true; syncMediaSession(true); renderPlayButtons(); });
-  a.addEventListener('pause', () => { syncMediaSession(false); renderPlayButtons(); });
-  a.addEventListener('error', () => {
-    Diag.add('mesin', 'audio bermasalah, dikembalikan ke bingkai');
-    lepasMesinAudio(true);
-  });
-  document.body.appendChild(a);
-  PB.el = a;
-  return a;
-}
-
-/* Mengembalikan suara ke bingkai YouTube. Dipakai saat ganti lagu, dan saat
-   berkas audionya bermasalah di tengah jalan. */
-function lepasMesinAudio(lanjutkanDiBingkai) {
-  if (!PB.el) return;
-  const detik = PB.pakaiAudio ? PB.el.currentTime : null;
-  PB.vid = null;
-  try { PB.el.pause(); PB.el.removeAttribute('src'); PB.el.load(); } catch {}
-  if (lanjutkanDiBingkai && Player.current && Player.ready) {
-    try {
-      if (detik != null) Player.yt.seekTo(detik, true);
-      if (Player.wantPlaying) Player.yt.playVideo();
-    } catch {}
-  }
-}
-
-/* Pengoperan. Dilakukan hanya kalau lagunya masih lagu yang sama, karena
-   pencariannya berjalan lama dan pendengar bisa saja sudah pindah lagu. */
-/* Jaring pengaman. Kalau berkasnya ternyata tetap tersendat di perangkat
-   tertentu, jangan biarkan lagunya mati diam diam: kembalikan ke bingkai
-   YouTube di posisi yang sama. Bingkai itu tidak bisa jalan di latar
-   belakang, tapi setidaknya lagunya utuh saat layarnya dibuka lagi. */
-let macetBerturut = 0;
-setInterval(() => {
-  if (!PB.pakaiAudio || !PB.el || PB.el.paused) { macetBerturut = 0; return; }
-  if (PB.el.readyState >= 2) { macetBerturut = 0; return; }
-  macetBerturut++;
-  if (macetBerturut >= 4) {
-    macetBerturut = 0;
-    Diag.add('mesin', 'berkas tersendat terus, dikembalikan ke bingkai');
-    lepasMesinAudio(true);
-  }
-}, 1200);
 
 window.onYouTubeIframeAPIReady = () => {
   Player.yt = new YT.Player('yt-player', {
@@ -589,15 +424,6 @@ window.onYouTubeIframeAPIReady = () => {
         } catch {}
       },
       onStateChange: (e) => {
-        // Begitu suaranya dipegang elemen audio, kabar dari bingkai bukan lagi
-        // kabar tentang lagu yang didengar. Yang paling menyesatkan adalah
-        // jeda yang justru kita sendiri yang menyuruh saat pengoperan: kalau
-        // diteruskan, tombol dan notifikasi akan bilang terjeda padahal
-        // musiknya jalan.
-        if (PB.pakaiAudio) {
-          Diag.add('yt', 'diabaikan, suara di elemen audio | keadaan ' + e.data);
-          return;
-        }
         if (e.data === YT.PlayerState.ENDED) {
           try {
             const vid = Player.yt.getVideoData && Player.yt.getVideoData().video_id;
@@ -762,15 +588,6 @@ function restoreQueue() {
   });
   const sp = $('#np-speed span');
   if (sp) sp.textContent = Player.speed + '×';
-  /* Alamat audionya dicari sejak sekarang, jauh sebelum tombol putar ditekan.
-     Pencariannya memakan puluhan detik dan browser memperlambat penghitung
-     waktu begitu halamannya ditinggal, jadi kalau baru dimulai saat lagunya
-     diputar, sering belum selesai ketika orang sudah pindah aplikasi. Ini
-     hanya mencari alamatnya, berkasnya sendiri belum diunduh, jadi tidak ada
-     kuota yang terpakai untuk lagu yang mungkin tidak jadi diputar. */
-  if (pakaiMesinAudio() && Player.current && Player.current.videoId) {
-    Aliran.siapkan(Player.current.videoId);
-  }
   return true;
 }
 function moveQueued(i, dir) {
@@ -784,75 +601,6 @@ function moveQueued(i, dir) {
   renderQueue();
 }
 
-/* Jalur lama: bingkai YouTube yang memutar. Dipakai di desktop, di dalam
-   aplikasi Android, dan sebagai cadangan kalau berkas audionya gagal
-   disiapkan. */
-function mulaiLewatBingkai(s, loadId) {
-  const coba = () => {
-    if (loadId !== Player.loadId) return;
-    if (!Player.ready) return setTimeout(coba, 300);
-    Player.yt.loadVideoById({ videoId: s.videoId, suggestedQuality: suggestedQuality() });
-    PB.rate(Player.speed);
-    Player.wantPlaying = true;
-    PB.play();
-    applyPlaybackQuality();
-    setTimeout(applyPlaybackQuality, 400);
-    setTimeout(applyPlaybackQuality, 1600);
-  };
-  coba();
-}
-
-/* Jalur perangkat sentuh: berkas audionya disiapkan dulu, baru diputar.
-   Penyiapannya kelihatan, lengkap dengan kemajuannya, supaya tidak terasa
-   seperti aplikasi yang diam saja. Lagu berikutnya disiapkan sejak sekarang,
-   jadi begitu lagu ini habis, lagu berikutnya mulai seketika tanpa penantian
-   sama sekali. */
-async function mulaiLewatAudio(s, loadId) {
-  const videoId = s.videoId;
-
-  const nanti = Player.queue[Player.index + 1];
-  if (nanti && nanti.videoId && !Aliran.alamat.has(nanti.videoId)) Aliran.siapkan(nanti.videoId);
-
-  if (!Aliran.alamat.has(videoId)) {
-    Player.siap = { videoId, persen: 0 };
-    renderPlayButtons();
-  }
-  Diag.add('mesin', 'menyiapkan ' + videoId + (Aliran.alamat.has(videoId) ? ' (sudah ada)' : ''));
-
-  const url = await Aliran.siapkan(videoId, (persen) => {
-    if (Player.siap && Player.siap.videoId === videoId) Player.siap.persen = persen;
-  });
-
-  if (loadId !== Player.loadId) return;      // pendengar sudah pindah lagu
-  Player.siap = null;
-
-  if (!url) {
-    Diag.add('mesin', 'gagal disiapkan, memakai bingkai sebagai cadangan');
-    toast('Mode latar belakang tidak tersedia untuk lagu ini');
-    mulaiLewatBingkai(s, loadId);
-    return;
-  }
-  putarBerkas(videoId, url);
-}
-
-/* Menyalakan elemen audio dari awal lagu. Tidak pernah meloncat posisi,
-   karena loncatan itu yang terbukti membuat berkasnya macet. */
-function putarBerkas(videoId, url) {
-  const a = elemenAudio();
-  Diag.add('mesin', 'memutar berkas, hidden=' + document.hidden);
-  const kabar = (nama) => () => Diag.add('audio', nama + ' | siap=' + a.readyState + ' hidden=' + document.hidden);
-  for (const n of ['loadedmetadata', 'canplay', 'playing', 'stalled', 'waiting', 'abort']) {
-    a.addEventListener(n, kabar(n), { once: true });
-  }
-  a.src = url;
-  PB.vid = videoId;
-  try { a.playbackRate = Player.speed || 1; } catch {}
-  try { Player.yt.pauseVideo(); } catch {}
-  const r = a.play();
-  if (r && r.catch) r.catch((e) => Diag.add('mesin', 'putar ditolak ' + String((e && e.name) || e)));
-  assertMediaSession();
-}
-
 function startCurrent() {
   Player.cued = false;
   Player.pending = null;
@@ -861,22 +609,20 @@ function startCurrent() {
   // Lagu sebelumnya mungkin sedang dipegang elemen audio. Dilepas dulu, dan
   // tanpa diteruskan ke bingkai, karena bingkainya sebentar lagi memuat lagu
   // yang baru.
-  lepasMesinAudio(false);
   const loadId = ++Player.loadId;
-  Player.wantPlaying = true;
 
-  /* Di perangkat sentuh, yang memutar adalah elemen audio, bukan bingkai
-     YouTube. Bingkainya cuma cadangan kalau berkasnya gagal disiapkan.
-
-     Ini beda dari percobaan sebelumnya yang memulai dari bingkai lalu
-     mengoper belakangan. Cara itu selalu kalah cepat dengan orang yang
-     menekan putar lalu langsung pindah aplikasi, karena penyiapan berkasnya
-     makan belasan detik dan selama itu yang berbunyi masih bingkai, yang
-     memang tidak boleh jalan di latar belakang. Sekarang lagunya tidak mulai
-     sampai berkasnya siap, jadi begitu terdengar, saat itu juga sudah boleh
-     ditinggal. */
-  if (pakaiMesinAudio()) mulaiLewatAudio(s, loadId);
-  else mulaiLewatBingkai(s, loadId);
+  const tryPlay = () => {
+    if (loadId !== Player.loadId) return;
+    if (!Player.ready) return setTimeout(tryPlay, 300);
+    Player.yt.loadVideoById({ videoId: s.videoId, suggestedQuality: suggestedQuality() });
+    PB.rate(Player.speed);
+    Player.wantPlaying = true;
+    PB.play();
+    applyPlaybackQuality();
+    setTimeout(applyPlaybackQuality, 400);
+    setTimeout(applyPlaybackQuality, 1600);
+  };
+  tryPlay();
   Library.pushHistory(s);
   maybeExtendQueue();
   Player.lyrics = { synced: null, plain: null, source: null, lines: [] };
@@ -1325,20 +1071,6 @@ function syncMediaSession(playing) {
 }
 function togglePlay() {
   if (!Player.current) return;
-  /* Ditekan selagi berkasnya disiapkan berarti batal. Tanpa ini, tombolnya
-     malah menyalakan bingkai YouTube, dan pendengar berakhir dengan dua lagu
-     yang saling menimpa begitu penyiapannya selesai. Penyiapan yang sedang
-     berjalan tetap dibiarkan selesai diam diam, hasilnya disimpan, jadi
-     kalau diputar lagi sebentar kemudian sudah tidak perlu menunggu. */
-  if (Player.siap) {
-    Player.siap = null;
-    Player.wantPlaying = false;
-    Player.loadId++;
-    Diag.add('mesin', 'penyiapan dibatalkan pendengar');
-    renderPlayButtons();
-    syncPlaybackUI();
-    return;
-  }
   if (Player.cued) {
     const s = Player.current;
     const hasRadio = Player.queue.some((q, i) => i > Player.index && !q._user);
@@ -1372,23 +1104,6 @@ function toggleNowPlayingPlay() {
 /* progress loop */
 let _lastTick = null;
 function syncPlaybackUI() {
-  /* Selagi berkasnya disiapkan belum ada yang berbunyi, jadi tidak ada waktu
-     dan durasi untuk ditampilkan. Yang ditampilkan kemajuan penyiapannya,
-     supaya jelas aplikasinya sedang bekerja dan bukan diam mogok. */
-  if (Player.siap) {
-    const p = Math.max(0, Math.min(99, Player.siap.persen || 0));
-    $('#mini-progress-fill').style.width = p + '%';
-    const knob = $('.pb-knob');
-    if (knob) knob.style.left = p + '%';
-    $('#mini-cur').textContent = 'Menyiapkan';
-    $('#mini-dur').textContent = p + '%';
-    if (!isPreviewing() && !seekDragging) {
-      $('#np-range').value = p * 10;
-      $('#np-cur').textContent = 'Menyiapkan';
-      $('#np-dur').textContent = p + '%';
-    }
-    return;
-  }
   if (!Player.yt || !Player.ready || !Player.current || !Player.yt.getDuration) return;
   const cur = PB.time() || 0;
   // local scrobble: accumulate listen time while playing
@@ -1424,7 +1139,7 @@ function syncPlaybackUI() {
 setInterval(syncPlaybackUI, 400);
 
 function renderPlayButtons() {
-  const actuallyPlaying = !!Player.siap || (Player.ready && PB.state() === YT.PlayerState.PLAYING);
+  const actuallyPlaying = Player.ready && PB.state() === YT.PlayerState.PLAYING;
   const preview = isPreviewing();
   $('#mini-play').innerHTML = icon(actuallyPlaying ? 'i-pause' : 'i-play');
   $('#np-play').innerHTML = icon(!preview && actuallyPlaying ? 'i-pause' : 'i-play');
@@ -4224,10 +3939,34 @@ window.addEventListener('load', () => setTimeout(maybeShowAppBanner, 300));
  *
  * The stopping itself is not something a page can talk its way out of. It
  * cannot set its own user agent, and the frame that makes the sound belongs
- * to another origin. So the honest things left are what this code does: keep
- * asking while the tab is hidden, because on the desktop site that is what
- * makes it work; pick playback back up on return; and say plainly which
- * switch fixes it rather than let the music die without explanation.
+ * to another origin.
+ *
+ * Which leaves one idea, and it was built and measured on the device before
+ * being removed again: stop letting the frame be the thing that makes the
+ * sound, and play the audio from an element of our own instead, the way every
+ * other music site does. Getting a file to feed that element has exactly two
+ * possible sources, and both are closed.
+ *
+ *   - Fetching the audio ourselves. Six client types were tried from the real
+ *     server. Two demand a device attestation only the official app can
+ *     produce, three are told to sign in to prove they are not a robot
+ *     because the address belongs to a data centre, and two are simply no
+ *     longer served. No amount of code gets past either wall.
+ *
+ *   - The third party converter this app already uses for downloads. It does
+ *     hand back a file, but it cannot feed a player. It answers no cross
+ *     origin request, so the file cannot be read and handed over as one
+ *     piece. It serves no partial requests, so streaming it survives only
+ *     until the first jump in position and then falls to nothing, which is
+ *     the stutter that was heard. Its m4a never delivered a single byte to
+ *     the element. And every file takes between fourteen and thirty seconds
+ *     to prepare, which is a wait nobody should be asked to sit through
+ *     before a song starts.
+ *
+ * So the honest things left are what this code does: keep asking while the
+ * tab is hidden, because on the desktop site that is what makes it work; pick
+ * playback back up on return; and say plainly which switch fixes it rather
+ * than let the music die without explanation.
  */
 const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
@@ -4243,7 +3982,7 @@ let bgHintShown = false;
  * Kalau suaranya sudah dipegang elemen audio, penahanan ini tetap berguna,
  * karena yang diminta jalan lagi adalah elemen kita sendiri. */
 function bolehPaksaLanjut() {
-  return PB.pakaiAudio || !isPhoneDefaultMode();
+  return !isPhoneDefaultMode();
 }
 
 function resumeIfBackgroundPause(state) {
