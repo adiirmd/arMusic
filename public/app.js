@@ -28,15 +28,18 @@ const api = async (path) => {
  *
  * en-GB rather than en-US, so the order stays day, date, month, year in both
  * languages and the line does not jump about when the language is switched.
- * British English leaves out the comma after the day, which is put back here
- * to match the Indonesian version exactly. */
+ *
+ * Whether a comma follows the day depends on the browser: some put one there
+ * already, others do not. The comma is normalised rather than simply added,
+ * because adding it blind gave "Saturday,, 19 September" on the ones that had
+ * already written it. */
 function formatDateLine(d) {
   const id = (typeof I18N !== 'undefined' && I18N.currentLang() === 'id');
   try {
     const s = d.toLocaleDateString(id ? 'id-ID' : 'en-GB', {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     });
-    return id ? s : s.replace(/^(\S+)\s/, '$1, ');
+    return s.replace(/^([^,\s]+),*\s/, '$1, ');
   } catch {
     return d.toDateString();
   }
