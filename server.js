@@ -581,18 +581,55 @@ app.get('/api/download-progress', async (req, res) => {
 const PROBE_CLIENTS = [
   {
     nama: 'ANDROID',
-    ctx: { clientName: 'ANDROID', clientVersion: '19.09.37', androidSdkVersion: 30, hl: 'en', gl: 'US' },
-    ua: 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
+    key: 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+    ctx: {
+      clientName: 'ANDROID', clientVersion: '19.29.37', androidSdkVersion: 30,
+      osName: 'Android', osVersion: '11', platform: 'MOBILE', hl: 'en', gl: 'US',
+    },
+    ua: 'com.google.android.youtube/19.29.37 (Linux; U; Android 11) gzip',
+  },
+  {
+    nama: 'ANDROID_VR',
+    key: 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+    ctx: {
+      clientName: 'ANDROID_VR', clientVersion: '1.60.19', androidSdkVersion: 32,
+      deviceMake: 'Oculus', deviceModel: 'Quest 3', osName: 'Android', osVersion: '12L',
+      hl: 'en', gl: 'US',
+    },
+    ua: 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L) gzip',
   },
   {
     nama: 'IOS',
-    ctx: { clientName: 'IOS', clientVersion: '19.09.3', deviceModel: 'iPhone14,3', hl: 'en', gl: 'US' },
-    ua: 'com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)',
+    key: 'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
+    ctx: {
+      clientName: 'IOS', clientVersion: '19.29.1',
+      deviceMake: 'Apple', deviceModel: 'iPhone16,2',
+      osName: 'iPhone', osVersion: '17.5.1.21F90', platform: 'MOBILE', hl: 'en', gl: 'US',
+    },
+    ua: 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)',
   },
   {
-    nama: 'WEB',
-    ctx: { clientName: 'WEB', clientVersion: '2.20240101.00.00', hl: 'en', gl: 'US' },
+    nama: 'TVHTML5_EMBED',
+    ctx: {
+      clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', clientVersion: '2.0',
+      clientScreen: 'EMBED', hl: 'en', gl: 'US',
+    },
+    ua: 'Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
+    pihakKetiga: true,
+  },
+  {
+    nama: 'WEB_EMBEDDED',
+    ctx: {
+      clientName: 'WEB_EMBEDDED_PLAYER', clientVersion: '1.20240101.00.00',
+      clientScreen: 'EMBED', hl: 'en', gl: 'US',
+    },
     ua: HEADERS['User-Agent'],
+    pihakKetiga: true,
+  },
+  {
+    nama: 'MWEB',
+    ctx: { clientName: 'MWEB', clientVersion: '2.20240101.00.00', hl: 'en', gl: 'US' },
+    ua: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36',
   },
 ];
 
@@ -603,37 +640,54 @@ app.get('/api/audio-probe', async (req, res) => {
   for (const c of PROBE_CLIENTS) {
     const baris = { klien: c.nama };
     try {
-      const r = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': c.ua },
-        body: JSON.stringify({ videoId, context: { client: c.ctx } }),
-      });
+      const badan = {
+        videoId,
+        context: { client: c.ctx },
+        contentCheckOk: true,
+        racyCheckOk: true,
+      };
+      if (c.pihakKetiga) badan.context.thirdParty = { embedUrl: 'https://www.youtube.com/' };
+      const r = await fetch(
+        `https://www.youtube.com/youtubei/v1/player?prettyPrint=false${c.key ? `&key=${c.key}` : ''}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': c.ua,
+            Origin: 'https://www.youtube.com',
+            'X-Goog-Api-Format-Version': '2',
+          },
+          body: JSON.stringify(badan),
+        },
+      );
       baris.http = r.status;
-      const d = await r.json();
-      baris.status = d?.playabilityStatus?.status || null;
-      const alasan = d?.playabilityStatus?.reason || '';
-      if (alasan) baris.alasan = String(alasan).slice(0, 160);
-      const audio = (d?.streamingData?.adaptiveFormats || [])
-        .filter((f) => String(f.mimeType || '').startsWith('audio'))
-        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-      baris.jumlahAudio = audio.length;
-      if (audio.length) {
-        const b = audio[0];
-        baris.terbaik = { bitrate: b.bitrate || null, mime: String(b.mimeType || '').slice(0, 40) };
-        baris.urlLangsung = !!b.url;
-        baris.terkunciCipher = !!b.signatureCipher && !b.url;
-        // Apakah alamat itu benar benar bisa diambil dari sini, bukan cuma ada.
-        if (b.url) {
-          try {
-            const a = await fetch(b.url, { headers: { Range: 'bytes=0-1023' } });
-            baris.ambil = {
-              http: a.status,
-              tipe: a.headers.get('content-type'),
-              cors: a.headers.get('access-control-allow-origin') || null,
-            };
-            baris.url = b.url;   // dipakai untuk menguji pemutaran dari ponsel
-          } catch (e) {
-            baris.ambil = { galat: String(e.message).slice(0, 120) };
+      const mentah = await r.text();
+      let d = null;
+      try { d = JSON.parse(mentah); } catch { baris.balasan = mentah.slice(0, 200); }
+      if (d) {
+        baris.status = d?.playabilityStatus?.status || null;
+        const alasan = d?.playabilityStatus?.reason || d?.error?.message || '';
+        if (alasan) baris.alasan = String(alasan).slice(0, 160);
+        const audio = (d?.streamingData?.adaptiveFormats || [])
+          .filter((f) => String(f.mimeType || '').startsWith('audio'))
+          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        baris.jumlahAudio = audio.length;
+        if (audio.length) {
+          const b = audio[0];
+          baris.terbaik = { bitrate: b.bitrate || null, mime: String(b.mimeType || '').slice(0, 40) };
+          baris.urlLangsung = !!b.url;
+          baris.terkunciCipher = !!b.signatureCipher && !b.url;
+          if (b.url) {
+            try {
+              const a = await fetch(b.url, { headers: { Range: 'bytes=0-1023' } });
+              baris.ambil = {
+                http: a.status,
+                tipe: a.headers.get('content-type'),
+                cors: a.headers.get('access-control-allow-origin') || null,
+              };
+            } catch (e) {
+              baris.ambil = { galat: String(e.message).slice(0, 120) };
+            }
           }
         }
       }
