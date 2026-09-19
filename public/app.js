@@ -776,6 +776,15 @@ function restoreQueue() {
   });
   const sp = $('#np-speed span');
   if (sp) sp.textContent = Player.speed + '×';
+  /* Alamat audionya dicari sejak sekarang, jauh sebelum tombol putar ditekan.
+     Pencariannya memakan puluhan detik dan browser memperlambat penghitung
+     waktu begitu halamannya ditinggal, jadi kalau baru dimulai saat lagunya
+     diputar, sering belum selesai ketika orang sudah pindah aplikasi. Ini
+     hanya mencari alamatnya, berkasnya sendiri belum diunduh, jadi tidak ada
+     kuota yang terpakai untuk lagu yang mungkin tidak jadi diputar. */
+  if (pakaiMesinAudio() && Player.current && Player.current.videoId) {
+    Aliran.cari(Player.current.videoId);
+  }
   return true;
 }
 function moveQueued(i, dir) {
