@@ -3873,34 +3873,108 @@ function isPhoneDefaultMode() {
   return isHandheld() && /Mobile/i.test(navigator.userAgent);
 }
 
+/* Ponsel maupun tablet Android yang browsernya masih mode biasa.
+ *
+ * Lebih luas daripada isPhoneDefaultMode di atas, dan memang harus. Fungsi itu
+ * menuntut penanda Mobile, sedangkan tablet Android tidak pernah mengirimnya
+ * walau sedang mode biasa, jadi tablet tidak pernah ikut terjaring padahal
+ * persoalan dan jalan keluarnya sama persis.
+ *
+ * Yang dipakai di sini kata Android, karena meminta situs desktop membuang
+ * kata itu dari user agent sepenuhnya: Chrome menggantinya dengan user agent
+ * Linux desktop. Layar sentuh menyingkirkan desktop sungguhan. Terukur pada
+ * lima keadaan:
+ *
+ *   ponsel mode biasa     sentuh, ada Android    -> benar
+ *   tablet mode biasa     sentuh, ada Android    -> benar
+ *   ponsel mode desktop   sentuh, tanpa Android  -> salah
+ *   tablet mode desktop   sentuh, tanpa Android  -> salah
+ *   desktop sungguhan     tanpa keduanya         -> salah
+ *
+ * Ada kemungkinan browser Android selain Chrome tetap menyisakan kata Android
+ * saat mode desktop. Akibat terburuknya ringan, yaitu panduan tampil kepada
+ * orang yang sudah mengaktifkannya, dan itu bisa ditutup.
+ */
+function isAndroidDefaultMode() {
+  return isHandheld() && /Android/i.test(navigator.userAgent);
+}
+
+/* Satu satunya jalan yang benar benar bekerja di browser ponsel, dan tidak ada
+ * seorang pun tahu caranya kalau tidak diberitahu. Sengaja berupa langkah
+ * bernomor sesuai apa yang terlihat di layar, bukan penjelasan teknis, karena
+ * yang dibutuhkan di sini cuma tahu harus menekan apa. */
+function panduanModeDesktop() {
+  store.set('panduan_dilihat', true);
+  const modal = $('#modal');
+  const body = $('#modal-body');
+  const actions = $('.modal-actions');
+  if (!modal || !body) return;
+  $('#modal-title').textContent = 'Biar musik jalan terus';
+  if (actions) actions.classList.add('hidden');
+  body.innerHTML = `<div class="panduan">
+      <p class="panduan-kata">Browser di ponsel menghentikan musik begitu tabnya ditinggal. Satu setelan browser mematikan perilaku itu, dan cukup dinyalakan sekali.</p>
+      <ol class="panduan-langkah">
+        <li>Ketuk menu tiga titik di pojok kanan atas browser</li>
+        <li>Cari <b>Situs desktop</b> atau <b>Desktop site</b></li>
+        <li>Centang, halaman ini akan memuat ulang sendiri</li>
+      </ol>
+      <p class="panduan-kata">Setelah itu musik tetap jalan walau pindah aplikasi, dan tombol di bilah notifikasi berfungsi. Browser mengingat setelan ini khusus untuk AR Music, jadi tidak perlu diulang.</p>
+      <div class="pl-form-actions">
+        <a class="pill-btn" id="pd-apl" href="https://github.com/adiirmd/arMusic/releases/latest" target="_blank" rel="noopener">${icon('i-download')}<span>Aplikasi Android</span></a>
+        <button type="button" class="pill-btn primary" id="pd-ok">Mengerti</button>
+      </div>
+    </div>`;
+  $('#pd-ok').addEventListener('click', closeModal);
+  $('#pd-apl').addEventListener('click', closeModal);
+  modal.classList.remove('hidden');
+}
+
+/* Kepastian bahwa yang barusan dilakukan berhasil. Tanpa ini orang menyalakan
+ * setelannya lalu tidak pernah tahu apakah sudah benar. Penandanya dibersihkan
+ * supaya hanya muncul sekali. */
+function cekModeDesktopMenyala() {
+  if (!store.get('panduan_dilihat', false)) return;
+  if (!isHandheld() || isAndroidDefaultMode()) return;
+  store.set('panduan_dilihat', false);
+  store.set('appbanner_off', true);
+  toast('Mode desktop aktif. Musik sekarang tetap jalan walau pindah aplikasi.');
+}
+
 function maybeShowAppBanner() {
   const el = $('#app-banner');
   if (!el) return;
   const worthOffering =
-    isHandheld() &&
-    /Android/i.test(navigator.userAgent) &&
+    isAndroidDefaultMode() &&
     !document.documentElement.classList.contains('in-app');
   if (!worthOffering || store.get('appbanner_off', false)) return;
-  // On the one device where background playback is actually broken, lead with
-  // the switch that fixes it on the spot. Offering only the download would be
-  // asking someone to install an app to solve something their own browser
-  // menu already solves.
-  if (isPhoneDefaultMode()) {
-    const t = el.querySelector('.ab-title');
-    const s = el.querySelector('.ab-sub');
-    if (t) t.textContent = 'Musik berhenti saat pindah aplikasi';
-    if (s) s.textContent = 'Buka menu tiga titik di browser lalu centang Situs desktop, musik jadi tetap jalan di background. Atau pakai aplikasi Androidnya.';
-  }
+  // Di perangkat yang pemutaran latar belakangnya memang tidak jalan, yang
+  // didahulukan saklar yang menyelesaikannya saat itu juga. Menawarkan unduhan
+  // saja berarti menyuruh orang memasang aplikasi untuk sesuatu yang sudah
+  // diselesaikan menu browsernya sendiri. Berlaku untuk ponsel dan tablet,
+  // karena keduanya sama sama terkunci selama masih mode biasa.
+  const t = el.querySelector('.ab-title');
+  const s = el.querySelector('.ab-sub');
+  if (t) t.textContent = 'Musik berhenti saat pindah aplikasi';
+  if (s) s.textContent = 'Nyalakan Situs desktop di menu browser, musik jadi tetap jalan di background. Ketuk untuk lihat caranya.';
   el.classList.remove('hidden');
 }
-$('#ab-close')?.addEventListener('click', () => {
+$('#ab-close')?.addEventListener('click', (e) => {
+  e.stopPropagation();
   store.set('appbanner_off', true);
   $('#app-banner').classList.add('hidden');
 });
 // tapping through to the release is an answer too, so stop asking
-$('#ab-get')?.addEventListener('click', () => { store.set('appbanner_off', true); });
+$('#ab-get')?.addEventListener('click', (e) => { e.stopPropagation(); store.set('appbanner_off', true); });
+// seluruh spanduknya membuka panduan, bukan cuma satu tombol kecil di dalamnya
+$('#app-banner')?.addEventListener('click', () => panduanModeDesktop());
+$('#app-banner')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); panduanModeDesktop(); }
+});
 /* The app tags the page after load, so the check waits for that to land. */
-window.addEventListener('load', () => setTimeout(maybeShowAppBanner, 300));
+window.addEventListener('load', () => setTimeout(() => {
+  cekModeDesktopMenyala();
+  maybeShowAppBanner();
+}, 300));
 
 /* ---------- the page is not on screen ----------
  *
@@ -4017,10 +4091,16 @@ document.addEventListener('visibilitychange', () => {
     try { PB.play(); } catch {}
     // Say why it happened, once on this device. Nagging about it every time
     // someone checks a message would be worse than the silence was.
-    if (!bgHintShown && !store.get('bgnote', false) && isPhoneDefaultMode()) {
+    /* Ini detik paling berguna untuk menjelaskannya, karena persis saat orang
+       merasakan masalahnya sendiri. Dulu cuma toast, yang hilang sebelum
+       sempat dibaca dan tidak memberi tahu caranya. Sekali saja per perangkat,
+       menagih terus tiap kali orang mengecek pesan justru lebih buruk daripada
+       diamnya yang dulu. */
+    if (!bgHintShown && !store.get('bgnote', false) && isAndroidDefaultMode()
+        && !document.documentElement.classList.contains('in-app')) {
       bgHintShown = true;
       store.set('bgnote', true);
-      toast('Musik berhenti karena tabnya ditinggal. Centang Situs desktop di menu browser biar tetap jalan di background.');
+      panduanModeDesktop();
     }
   }
   bgResumeTries = 0;

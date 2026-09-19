@@ -1747,6 +1747,28 @@ html.in-app input { -webkit-user-select: text; user-select: text; }
 .ab-close { flex: none; color: var(--muted); padding: 4px; }
 .ab-close:hover { color: var(--text); }
 .ab-close .ic { width: 15px; height: 15px; }
+/* seluruh spanduknya bisa diketuk, jadi harus terlihat begitu */
+#app-banner { cursor: pointer; }
+#app-banner:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- panduan mengaktifkan Situs desktop ---------- */
+.panduan-kata {
+  font-size: 13px; color: var(--muted); font-weight: 500;
+  line-height: 1.5; margin: 0 0 14px;
+}
+.panduan-langkah {
+  margin: 0 0 16px; padding: 0 0 0 20px;
+  display: flex; flex-direction: column; gap: 8px;
+  font-size: 13.5px; line-height: 1.45; color: var(--text);
+}
+.panduan-langkah li { padding-left: 2px; }
+.panduan-langkah li::marker { color: var(--accent); font-weight: 800; }
+.panduan-langkah b { font-weight: 800; }
+/* di layar sempit tombolnya turun sendiri, biar tidak terpotong */
+@media (max-width: 400px) {
+  .panduan .pl-form-actions { flex-wrap: wrap; }
+  .panduan .pl-form-actions .pill-btn { flex: 1 1 100%; justify-content: center; }
+}
 
 /* pinggirannya harus sama dengan padding #view, atau banner tidak segaris
    dengan judul dan rak di bawahnya */
