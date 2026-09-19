@@ -557,148 +557,42 @@ app.get('/api/download-progress', async (req, res) => {
   }
 });
 
-/* ---------------- uji kelayakan: bisakah aliran audio diambil sendiri? ----------------
+/* ---------------- kenapa audionya tidak diambil sendiri ----------------
 
-   Ini alat ukur, bukan fitur. Tidak ada satu pun bagian aplikasi yang
-   memanggilnya, dan tidak ada tautan menuju ke sini.
+   Pernah diukur, dan hasilnya menutup pertanyaannya. Alat ukurnya sudah
+   dihapus, catatannya ditinggal supaya tidak ada yang memulai lagi dari nol.
 
-   Latar belakangnya: di ponsel yang browsernya masih mode biasa, bingkai
-   YouTube menolak berbunyi begitu halamannya ditinggal, dan penolakan itu
-   sudah terbukti tidak bisa ditawar dari sisi halaman. Satu satunya jalan
-   yang tersisa adalah tidak lagi menjadikan bingkai itu sumber suaranya,
-   melainkan memutar audionya lewat elemen audio milik kita sendiri. Browser
-   memperlakukan audio milik halaman sendiri seperti situs musik mana pun,
-   yaitu boleh jalan di latar belakang lengkap dengan notifikasi yang
-   tombolnya berfungsi.
+   Latar belakangnya, di ponsel yang browsernya masih mode biasa bingkai
+   YouTube menolak berbunyi begitu halamannya ditinggal, dan itu sudah
+   terbukti tidak bisa ditawar dari sisi halaman, termasuk lewat tombol
+   notifikasi yang membawa izin interaksi pengguna. Satu satunya jalan yang
+   tersisa adalah tidak lagi menjadikan bingkai itu sumber suara, melainkan
+   memutar audionya lewat elemen audio milik halaman sendiri, yang oleh
+   browser diperlakukan seperti situs musik mana pun dan boleh jalan di latar
+   belakang. Itu menuntut server ini sanggup menemukan alamat aliran audio
+   sendiri.
 
-   Yang belum diketahui, dan hanya bisa dijawab dari server yang sebenarnya:
-   apakah permintaan seperti ini dilayani dari alamat pusat data seperti
-   Vercel, atau justru ditolak. Jawabannya menentukan apakah pekerjaan
-   besarnya layak dimulai, jadi lebih murah diukur dulu lewat satu alamat
-   daripada membongkar pemutarnya lalu tahu belakangan.
+   Enam jenis klien diuji langsung dari server yang sebenarnya, dan semuanya
+   ditolak dengan tiga macam tembok:
 
-   Dihapus lagi setelah pertanyaannya terjawab. */
-const PROBE_CLIENTS = [
-  {
-    nama: 'ANDROID',
-    key: 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-    ctx: {
-      clientName: 'ANDROID', clientVersion: '19.29.37', androidSdkVersion: 30,
-      osName: 'Android', osVersion: '11', platform: 'MOBILE', hl: 'en', gl: 'US',
-    },
-    ua: 'com.google.android.youtube/19.29.37 (Linux; U; Android 11) gzip',
-  },
-  {
-    nama: 'ANDROID_VR',
-    key: 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
-    ctx: {
-      clientName: 'ANDROID_VR', clientVersion: '1.60.19', androidSdkVersion: 32,
-      deviceMake: 'Oculus', deviceModel: 'Quest 3', osName: 'Android', osVersion: '12L',
-      hl: 'en', gl: 'US',
-    },
-    ua: 'com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L) gzip',
-  },
-  {
-    nama: 'IOS',
-    key: 'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
-    ctx: {
-      clientName: 'IOS', clientVersion: '19.29.1',
-      deviceMake: 'Apple', deviceModel: 'iPhone16,2',
-      osName: 'iPhone', osVersion: '17.5.1.21F90', platform: 'MOBILE', hl: 'en', gl: 'US',
-    },
-    ua: 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)',
-  },
-  {
-    nama: 'TVHTML5_EMBED',
-    ctx: {
-      clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', clientVersion: '2.0',
-      clientScreen: 'EMBED', hl: 'en', gl: 'US',
-    },
-    ua: 'Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
-    pihakKetiga: true,
-  },
-  {
-    nama: 'WEB_EMBEDDED',
-    ctx: {
-      clientName: 'WEB_EMBEDDED_PLAYER', clientVersion: '1.20240101.00.00',
-      clientScreen: 'EMBED', hl: 'en', gl: 'US',
-    },
-    ua: HEADERS['User-Agent'],
-    pihakKetiga: true,
-  },
-  {
-    nama: 'MWEB',
-    ctx: { clientName: 'MWEB', clientVersion: '2.20240101.00.00', hl: 'en', gl: 'US' },
-    ua: 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36',
-  },
-];
+     ANDROID, IOS            Precondition check failed. Permintaannya menuntut
+                             bukti keaslian perangkat yang hanya bisa dibuat
+                             aplikasi resminya.
+     ANDROID_VR, MWEB, WEB   Diminta masuk akun untuk membuktikan bukan robot.
+                             Ini soal reputasi alamat, dan alamat pusat data
+                             seperti tempat aplikasi ini berjalan memang sudah
+                             ditandai.
+     TVHTML5, WEB_EMBEDDED   Klien lama, sudah tidak dilayani.
 
-app.get('/api/audio-probe', async (req, res) => {
-  const videoId = String(req.query.videoId || 'JGwWNGJdvx8');
-  if (!/^[\w-]{6,20}$/.test(videoId)) return res.status(400).json({ error: 'bad id' });
-  const hasil = [];
-  for (const c of PROBE_CLIENTS) {
-    const baris = { klien: c.nama };
-    try {
-      const badan = {
-        videoId,
-        context: { client: c.ctx },
-        contentCheckOk: true,
-        racyCheckOk: true,
-      };
-      if (c.pihakKetiga) badan.context.thirdParty = { embedUrl: 'https://www.youtube.com/' };
-      const r = await fetch(
-        `https://www.youtube.com/youtubei/v1/player?prettyPrint=false${c.key ? `&key=${c.key}` : ''}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': c.ua,
-            Origin: 'https://www.youtube.com',
-            'X-Goog-Api-Format-Version': '2',
-          },
-          body: JSON.stringify(badan),
-        },
-      );
-      baris.http = r.status;
-      const mentah = await r.text();
-      let d = null;
-      try { d = JSON.parse(mentah); } catch { baris.balasan = mentah.slice(0, 200); }
-      if (d) {
-        baris.status = d?.playabilityStatus?.status || null;
-        const alasan = d?.playabilityStatus?.reason || d?.error?.message || '';
-        if (alasan) baris.alasan = String(alasan).slice(0, 160);
-        const audio = (d?.streamingData?.adaptiveFormats || [])
-          .filter((f) => String(f.mimeType || '').startsWith('audio'))
-          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-        baris.jumlahAudio = audio.length;
-        if (audio.length) {
-          const b = audio[0];
-          baris.terbaik = { bitrate: b.bitrate || null, mime: String(b.mimeType || '').slice(0, 40) };
-          baris.urlLangsung = !!b.url;
-          baris.terkunciCipher = !!b.signatureCipher && !b.url;
-          if (b.url) {
-            try {
-              const a = await fetch(b.url, { headers: { Range: 'bytes=0-1023' } });
-              baris.ambil = {
-                http: a.status,
-                tipe: a.headers.get('content-type'),
-                cors: a.headers.get('access-control-allow-origin') || null,
-              };
-            } catch (e) {
-              baris.ambil = { galat: String(e.message).slice(0, 120) };
-            }
-          }
-        }
-      }
-    } catch (e) {
-      baris.galat = String(e.message).slice(0, 160);
-    }
-    hasil.push(baris);
-  }
-  res.set('Cache-Control', 'no-store');
-  res.json({ videoId, hasil });
-});
+   Dua tembok pertama tidak bisa dilewati dengan memperbaiki kode. Yang satu
+   menuntut perangkat asli, yang satu lagi menuntut alamat rumahan. Andai ada
+   satu klien yang kebetulan lolos hari ini pun, jalan seperti ini berubah
+   beberapa kali setahun dan akan mati lagi.
+
+   Jadi audionya tetap dari bingkai YouTube, dan untuk dengar sambil membuka
+   aplikasi lain di ponsel jawabannya ada dua, yaitu aplikasi Androidnya atau
+   mengaktifkan Situs desktop di browser. Keduanya sudah disebut pada spanduk
+   di beranda untuk perangkat yang membutuhkannya. */
 
 /* resolve a YT Music / YouTube URL (playlist, album, artist, song) into an app route */
 app.get('/api/resolve', async (req, res) => {
