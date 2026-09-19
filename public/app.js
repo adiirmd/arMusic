@@ -934,7 +934,7 @@ function syncPlaybackUI() {
   }
   if (!isPreviewing()) updateLyricHighlight(cur);
   syncFloatProgress(pct);
-  if (Player.floatOn) drawPipFrame(pct);
+  if (Player.floatOn) { drawPipFrame(pct); syncPipVideo(playing); }
   syncMediaSession(playing);
 }
 setInterval(syncPlaybackUI, 400);
@@ -3302,104 +3302,162 @@ function currentLyricText() {
   if (L.plain) return String(L.plain).split('\n').map((x) => x.trim()).find(Boolean) || '';
   return '';
 }
-function wrapCanvasText(ctx, text, maxWidth) {
-  const raw = String(text || '').trim() || '♪';
-  const words = raw.split(/\s+/);
-  const out = [];
-  let line = '';
-  for (const w of words) {
-    const t = line ? `${line} ${w}` : w;
-    if (line && ctx.measureText(t).width > maxWidth) {
-      out.push(line);
-      line = w;
-    } else line = t;
-  }
-  if (line) out.push(line);
-  return out.slice(0, 4);
+/* Gambar untuk jendela PiP di ponsel dan tablet.
+ *
+ * Di sana tidak ada cara menaruh HTML di dalam jendela PiP, jadi kartunya
+ * digambar sendiri ke kanvas supaya tampilannya sedekat mungkin dengan widget
+ * versi desktop: sampul, judul, artis, bilah durasi, dan penanda keadaan.
+ * Tombolnya sendiri milik browser dan muncul di atas gambar ini saat disentuh.
+ */
+function roundedBox(ctx, x, y, w, h, r) {
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fill();
 }
-function currentLyricIndex() {
-  const L = Player.lyrics;
-  if (!L || !L.lines || !L.lines.length) return -1;
-  let cur = 0;
-  try { cur = (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0; } catch {}
-  let idx = -1;
-  const sh = lyricShift();
-  for (let i = 0; i < L.lines.length; i++) {
-    if (cur >= L.lines[i].t + sh - 0.2) idx = i;
-    else break;
-  }
-  return idx;
+
+function clipText(ctx, teks, maksLebar) {
+  let t = String(teks || '');
+  if (ctx.measureText(t).width <= maksLebar) return t;
+  while (t.length > 1 && ctx.measureText(t + '…').width > maksLebar) t = t.slice(0, -1);
+  return t + '…';
 }
-function pipLyricLines() {
-  const L = Player.lyrics;
-  if (L && L.lines && L.lines.length) return L.lines.map((l) => l.text || '♪');
-  if (L && L.plain) return String(L.plain).split(/\n/).map((x) => x.trim()).filter(Boolean);
-  return [];
-}
-function drawPipFrame() {
+
+function drawPipFrame(pct) {
   const canvas = $('#pip-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
   const s = Player.current;
   if (s && s.thumbnail) loadPipArt(s.thumbnail);
-  ctx.fillStyle = '#070707';
+
+  // latar: sampul yang diburamkan, lalu diredupkan
+  ctx.fillStyle = '#0a1220';
   ctx.fillRect(0, 0, w, h);
   if (pipArtImg) {
     ctx.save();
-    ctx.globalAlpha = 0.22;
-    const scale = Math.max(w / pipArtImg.width, h / pipArtImg.height);
-    const dw = pipArtImg.width * scale, dh = pipArtImg.height * scale;
+    ctx.filter = 'blur(28px)';
+    ctx.globalAlpha = 0.5;
+    const sc = Math.max(w / pipArtImg.width, h / pipArtImg.height) * 1.3;
+    const dw = pipArtImg.width * sc, dh = pipArtImg.height * sc;
     ctx.drawImage(pipArtImg, (w - dw) / 2, (h - dh) / 2, dw, dh);
     ctx.restore();
-    ctx.fillStyle = 'rgba(0,0,0,0.62)';
+    ctx.fillStyle = 'rgba(7,12,22,0.72)';
     ctx.fillRect(0, 0, w, h);
   }
-  const lines = pipLyricLines();
-  const maxW = w - 48;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  if (!lines.length) {
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.font = '700 26px "Plus Jakarta Sans", Segoe UI, sans-serif';
-    ctx.fillText('No lyrics', w / 2, h / 2, maxW);
-    return;
+
+  const pad = 22;
+  const artSize = 112;
+  const artX = pad, artY = 40;
+
+  // sampul
+  ctx.save();
+  roundRect(ctx, artX, artY, artSize, artSize, 12);
+  ctx.clip();
+  if (pipArtImg) {
+    const sc = Math.max(artSize / pipArtImg.width, artSize / pipArtImg.height);
+    const dw = pipArtImg.width * sc, dh = pipArtImg.height * sc;
+    ctx.drawImage(pipArtImg, artX + (artSize - dw) / 2, artY + (artSize - dh) / 2, dw, dh);
+  } else {
+    ctx.fillStyle = '#162034';
+    ctx.fillRect(artX, artY, artSize, artSize);
   }
-  let idx = currentLyricIndex();
-  if (idx < 0) {
-    try {
-      const dur = Player.yt && Player.yt.getDuration && Player.yt.getDuration();
-      const cur = Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime();
-      idx = dur ? Math.min(lines.length - 1, Math.floor((cur / dur) * lines.length)) : 0;
-    } catch { idx = 0; }
+  ctx.restore();
+
+  // judul dan artis
+  const tx = artX + artSize + 18;
+  const maxW = w - tx - pad;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '800 26px "Plus Jakarta Sans", Segoe UI, sans-serif';
+  ctx.fillText(clipText(ctx, (s && displayTitle(s.title)) || 'AR Music', maxW), tx, artY + 36);
+  ctx.fillStyle = 'rgba(233,239,249,0.72)';
+  ctx.font = '600 18px "Plus Jakarta Sans", Segoe UI, sans-serif';
+  ctx.fillText(clipText(ctx, (s && (s.artist || s.subtitle)) || '', maxW), tx, artY + 64);
+
+  // penanda keadaan, jeda atau berjalan
+  const berjalan = !document.body.classList.contains('paused');
+  ctx.fillStyle = berjalan ? '#6ba6ff' : 'rgba(233,239,249,0.55)';
+  const iy = artY + 92;
+  if (berjalan) {
+    ctx.fillRect(tx, iy - 12, 5, 16);
+    ctx.fillRect(tx + 9, iy - 12, 5, 16);
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(tx, iy - 13);
+    ctx.lineTo(tx + 15, iy - 4);
+    ctx.lineTo(tx, iy + 5);
+    ctx.closePath();
+    ctx.fill();
   }
-  const from = Math.max(0, idx - 3);
-  const to = Math.min(lines.length - 1, idx + 5);
-  const blocks = [];
-  for (let i = from; i <= to; i++) {
-    const active = i === idx;
-    ctx.font = active ? '800 30px "Plus Jakarta Sans", Segoe UI, sans-serif' : '600 20px "Plus Jakarta Sans", Segoe UI, sans-serif';
-    const wrapped = wrapCanvasText(ctx, lines[i], maxW);
-    const lh = active ? 38 : 28;
-    blocks.push({ i, active, wrapped, lh, h: wrapped.length * lh });
+  ctx.fillStyle = 'rgba(233,239,249,0.55)';
+  ctx.font = '700 14px "Plus Jakarta Sans", Segoe UI, sans-serif';
+  ctx.fillText(berjalan ? 'Memutar' : 'Dijeda', tx + 24, iy + 2);
+
+  // bilah durasi
+  const barY = artY + artSize + 26;
+  const barW = w - pad * 2;
+  ctx.fillStyle = 'rgba(146,166,198,0.28)';
+  roundedBox(ctx, pad, barY, barW, 6, 3);
+  const p = Math.max(0, Math.min(1, Number(pct) || 0));
+  if (p > 0) {
+    ctx.fillStyle = '#6ba6ff';
+    roundedBox(ctx, pad, barY, Math.max(6, barW * p), 6, 3);
   }
-  const activeBlock = blocks.find((b) => b.active) || blocks[0];
-  let yOff = 0;
-  for (const b of blocks) {
-    if (b.active) break;
-    yOff += b.h + 12;
+
+  // satu baris lirik kalau ada, mengisi ruang sisa
+  const baris = currentLyricText();
+  if (baris) {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(233,239,249,0.8)';
+    ctx.font = '600 17px "Plus Jakarta Sans", Segoe UI, sans-serif';
+    ctx.fillText(clipText(ctx, baris, w - pad * 2), w / 2, barY + 34);
   }
-  let y = h / 2 - yOff - (activeBlock.h / 2);
-  for (const b of blocks) {
-    ctx.font = b.active ? '800 30px "Plus Jakarta Sans", Segoe UI, sans-serif' : '600 20px "Plus Jakarta Sans", Segoe UI, sans-serif';
-    ctx.fillStyle = b.active ? '#6ba6ff' : (b.i < idx ? 'rgba(233,239,249,0.42)' : 'rgba(233,239,249,0.26)');
-    let ly = y + b.lh / 2;
-    for (const t of b.wrapped) {
-      ctx.fillText(t, w / 2, ly, maxW);
-      ly += b.lh;
-    }
-    y += b.h + 12;
-  }
+}
+
+/* ---------- jembatan antara video PiP dan pemutar sebenarnya ----------
+ *
+ * Di ponsel dan tablet, jendela PiP dibuat dari elemen <video> yang isinya
+ * kanvas gambaran kita sendiri. Tombol putar dan jeda di jendela itu, dan juga
+ * di notifikasi media, milik browser dan bekerja pada elemen video tersebut.
+ * Musiknya sendiri berbunyi di frame YouTube, bukan di video itu. Karena tidak
+ * ada yang menghubungkan keduanya, menekan jeda hanya membekukan gambarnya dan
+ * musiknya jalan terus.
+ *
+ * Dua arah harus disambung:
+ *   video dijeda oleh browser  -> musik ikut dijeda
+ *   musik dijeda dari mana pun -> video ikut dijeda, supaya browser dan
+ *                                 notifikasinya tidak salah menampilkan keadaan
+ *
+ * Penanda _pipSelf dipakai supaya perubahan yang kita buat sendiri tidak
+ * terbaca sebagai perintah dari pengguna dan memantul balik.
+ */
+let _pipSelf = false;
+
+function bindPipVideo(video) {
+  if (!video || video._pipBound) return;
+  video._pipBound = true;
+  video.addEventListener('pause', () => {
+    if (_pipSelf || !Player.floatOn) return;
+    if (isPlayingNow()) commandPause();
+  });
+  video.addEventListener('play', () => {
+    if (_pipSelf || !Player.floatOn) return;
+    if (!isPlayingNow()) togglePlay();
+  });
+}
+
+/* Menyamakan keadaan video kanvas dengan keadaan musik. */
+function syncPipVideo(playing) {
+  const video = $('#pip-video');
+  if (!video || !Player.floatOn || !video.srcObject) return;
+  if (playing === !video.paused) return;
+  _pipSelf = true;
+  try {
+    if (playing) { const r = video.play(); if (r && r.catch) r.catch(() => {}); }
+    else video.pause();
+  } catch {}
+  // dilepas setelah event pause/play sempat terkirim
+  setTimeout(() => { _pipSelf = false; }, 0);
 }
 
 async function startSystemPip() {
@@ -3412,7 +3470,10 @@ async function startSystemPip() {
     if (!video.srcObject) video.srcObject = canvas.captureStream(15);
     video.muted = true;
     video.playsInline = true;
+    bindPipVideo(video);
+    _pipSelf = true;
     await video.play();
+    _pipSelf = false;
     if (document.pictureInPictureElement) {
       await document.exitPictureInPicture();
     }

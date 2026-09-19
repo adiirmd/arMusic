@@ -1178,8 +1178,10 @@ body.float-mode.has-player #sidebar { margin-bottom: 0; }
 }
 #pip-canvas, #pip-video {
   position: fixed;
-  width: 90px;
-  height: 160px;
+  /* mengikuti bentuk bitmap kanvasnya, 480x270, supaya kotaknya tidak
+     bertentangan dengan rasio jendela picture-in-picture nantinya */
+  width: 160px;
+  height: 90px;
   left: 0;
   bottom: 0;
   opacity: 0.01;
