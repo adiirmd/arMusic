@@ -393,7 +393,12 @@ window.onYouTubeIframeAPIReady = () => {
         if (e.data === YT.PlayerState.BUFFERING) applyPlaybackQuality();
         Diag.add('yt', ({ '-1': 'belum mulai', 0: 'selesai', 1: 'memutar', 2: 'dijeda', 3: 'memuat', 5: 'siap' }[e.data] || e.data)
           + ' | hidden=' + document.hidden + ' float=' + !!Player.floatOn);
-        if (e.data === YT.PlayerState.PLAYING) { Player.wantPlaying = true; keepMediaSession(); }
+        if (e.data === YT.PlayerState.PLAYING) {
+          Player.wantPlaying = true;
+          keepMediaSession();
+          // setelah bingkai YouTube memasang sesinya sendiri, bukan sebelum
+          setTimeout(assertMediaSession, 900);
+        }
         resumeIfBackgroundPause(e.data);
         syncMediaSession(e.data === YT.PlayerState.PLAYING);
         document.body.classList.toggle('paused', e.data !== YT.PlayerState.PLAYING);
@@ -926,6 +931,38 @@ function setupMediaSession() {
 function isPlayingNow() {
   if (Player.cued || !Player.yt || !Player.ready) return false;
   try { return Player.yt.getPlayerState() === YT.PlayerState.PLAYING; } catch { return false; }
+}
+
+/* ---------- merebut kembali kepemilikan notifikasi ----------
+ *
+ * Notifikasinya sudah muncul, judul dan sampulnya benar, tetapi tombolnya
+ * tidak sampai ke sini. Petunjuknya ada pada ikon yang ditampilkan: ikon jeda,
+ * artinya sistem menganggap ada yang sedang berjalan, padahal kita sudah
+ * menyetel keadaannya menjadi terjeda. Berarti yang dibaca sistem bukan sesi
+ * media milik halaman ini.
+ *
+ * Sebabnya, satu halaman bisa punya lebih dari satu sesi media. Halaman ini
+ * punya satu, dan bingkai YouTube di dalamnya memasang sesinya sendiri.
+ * Chrome hanya meneruskan tombol ke satu di antaranya, yaitu yang paling
+ * terakhir memasang penangan dan metadatanya. Penangan kita dipasang sekali
+ * saat halaman dimuat, jauh sebelum ada lagu diputar, sedangkan bingkai
+ * YouTube memasang miliknya tepat ketika mulai memutar. Jadi kita selalu
+ * kalah baru, dan tombolnya diteruskan ke pemutar di dalam bingkai yang
+ * memang sedang tidak boleh berbunyi.
+ *
+ * Maka penangan dan metadatanya dipasang ulang pada dua saat yang menentukan:
+ * sesaat setelah lagu benar benar berjalan, dan tepat ketika tabnya
+ * ditinggal. Yang terakhir itu yang paling penting, karena itulah kesempatan
+ * terakhir menjadi yang paling baru sebelum notifikasinya dipakai orang.
+ */
+function assertMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  setupMediaSession();
+  if (Player.current) setMediaMetadata(Player.current);
+  try {
+    navigator.mediaSession.playbackState = isPlayingNow() ? 'playing' : 'paused';
+  } catch {}
+  Diag.add('mediasession', 'dipasang ulang | hidden=' + document.hidden + ' main=' + isPlayingNow());
 }
 
 /* ---------- menahan sesi media supaya notifikasinya ada ----------
@@ -3914,6 +3951,9 @@ document.addEventListener('visibilitychange', () => {
   Diag.add('keterlihatan', document.hidden ? 'tersembunyi' : 'terlihat');
   if (document.hidden) {
     bgResumeTries = 0;
+    // kesempatan terakhir menjadi pemilik sesi media sebelum notifikasinya
+    // dipakai, lihat catatan di assertMediaSession
+    assertMediaSession();
     return;
   }
   // timers are throttled in the background, so the UI is stale on return
