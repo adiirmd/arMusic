@@ -3587,6 +3587,13 @@ async function startSystemPip() {
   const canvas = $('#pip-canvas');
   if (!video || !canvas) return false;
   if (!document.pictureInPictureEnabled && !video.webkitSetPresentationMode) return false;
+  // A phone still in its normal browser mode is the one place this window is
+  // worse than nothing. The music cannot keep going behind it there at all,
+  // and the controls the browser draws on a canvas stream do not reach the
+  // player, so what opens is a window that looks like it should help and then
+  // watches the track die. The in page bar below is at least honest about
+  // what it can do.
+  if (isPhoneDefaultMode()) return false;
   try {
     drawPipFrame(0);
     if (!video.srcObject) video.srcObject = canvas.captureStream(15);
@@ -3715,6 +3722,29 @@ function isHandheld() {
   const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   return !!coarse || navigator.maxTouchPoints > 0;
 }
+
+/* A phone whose browser is still in its normal mode, as opposed to one that
+ * has been asked for the desktop site. That distinction is the one that
+ * decides whether background playback works at all, so it is worth being
+ * precise about how it is read.
+ *
+ * Chrome on Android drops the "Mobile" token from its user agent the moment
+ * the desktop site is requested, and a tablet never carries that token to
+ * begin with. Touch rules out a desktop browser that merely has a narrow
+ * window. Measured across four user agents:
+ *
+ *   phone, normal mode    touch, Mobile present   -> true
+ *   phone, desktop site   touch, no Mobile        -> false
+ *   tablet, normal mode   touch, no Mobile        -> false
+ *   desktop               no touch, no Mobile     -> false
+ *
+ * Only the first of those is the case that cannot play in the background,
+ * which is exactly the set this needs to name.
+ */
+function isPhoneDefaultMode() {
+  return isHandheld() && /Mobile/i.test(navigator.userAgent);
+}
+
 function maybeShowAppBanner() {
   const el = $('#app-banner');
   if (!el) return;
@@ -3723,6 +3753,16 @@ function maybeShowAppBanner() {
     /Android/i.test(navigator.userAgent) &&
     !document.documentElement.classList.contains('in-app');
   if (!worthOffering || store.get('appbanner_off', false)) return;
+  // On the one device where background playback is actually broken, lead with
+  // the switch that fixes it on the spot. Offering only the download would be
+  // asking someone to install an app to solve something their own browser
+  // menu already solves.
+  if (isPhoneDefaultMode()) {
+    const t = el.querySelector('.ab-title');
+    const s = el.querySelector('.ab-sub');
+    if (t) t.textContent = 'Musik berhenti saat pindah aplikasi';
+    if (s) s.textContent = 'Buka menu tiga titik di browser lalu centang Situs desktop, musik jadi tetap jalan di background. Atau pakai aplikasi Androidnya.';
+  }
   el.classList.remove('hidden');
 }
 $('#ab-close')?.addEventListener('click', () => {
@@ -3739,27 +3779,33 @@ window.addEventListener('load', () => setTimeout(maybeShowAppBanner, 300));
  * What was tried, and what it settled, so nobody spends another evening on it:
  *
  *   - Desktop browser: a background tab keeps playing on its own, always has.
- *   - Phone browser: it stops, and nothing the page does changes that.
- *     Asking the embedded player to carry on is refused. Giving the page a
- *     silent track of its own, so it counts as a page that is playing media,
- *     changed nothing. Requesting the desktop site changed nothing either,
- *     which rules out the player simply recognising a phone.
+ *   - Phone browser asked for the desktop site: the music stops for a moment,
+ *     the retry below gets it going again, and it carries on in the
+ *     background. The notification controls work too. Same on a tablet, which
+ *     never sends a phone user agent in the first place.
+ *   - Phone browser in its normal mode: it stops and stays stopped. Every
+ *     retry is refused, and so is the notification. Giving the page a silent
+ *     track of its own, so it counts as a page that is playing media, changed
+ *     nothing.
  *
  *   - The Android app, same phone and same YouTube frame, keeps playing. The
  *     only thing done differently there is that its WebView never reports
  *     itself hidden — see BackgroundWebView.
  *
- * That last one is what points at the cause. Android is plainly willing to
- * keep this playing in the background, so what stops it in a browser tab is
- * the page being told it is hidden, and whoever acts on that: the embedded
- * player, the browser's media policy, or both. Which of them hardly matters,
- * because the page cannot suppress that signal for itself. document.hidden is
- * not ours to set, and the frame that plays the sound belongs to another
- * origin. Only something that owns the browser engine can withhold it, which
- * is exactly what the app does and what a tab can never do.
+ * Read together, those say the block is not the embedded player noticing a
+ * phone, and not the page being told it is hidden either: the desktop site
+ * case is hidden just the same and still plays. What is left is the browser's
+ * own media policy for a hidden tab, which Chrome applies on a phone user
+ * agent and not on a desktop one.
  *
- * So the only thing left to do here is to pick playback back up on return,
- * and to say once why it stopped.
+ * That policy is not something a page can talk its way out of. It cannot set
+ * its own user agent, the frame that makes the sound belongs to another
+ * origin, and asking to play again is exactly what is being refused. So there
+ * are three honest things to do here, and they are all this code does: keep
+ * asking while the tab is hidden, because on the desktop site that is what
+ * makes it work; pick playback back up on return; and, on the one device
+ * where it genuinely cannot play, say plainly which switch fixes it rather
+ * than let the music die without explanation.
  */
 const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
@@ -3793,10 +3839,10 @@ document.addEventListener('visibilitychange', () => {
     try { Player.yt.playVideo(); } catch {}
     // Say why it happened, once on this device. Nagging about it every time
     // someone checks a message would be worse than the silence was.
-    if (!bgHintShown && !store.get('bgnote', false)) {
+    if (!bgHintShown && !store.get('bgnote', false) && isPhoneDefaultMode()) {
       bgHintShown = true;
       store.set('bgnote', true);
-      toast('Browser di HP selalu menghentikan musik saat tabnya ditinggal. Pakai aplikasi Android AR Music kalau mau dengar sambil buka aplikasi lain.');
+      toast('Musik berhenti karena tabnya ditinggal. Centang Situs desktop di menu browser biar tetap jalan di background.');
     }
   }
   bgResumeTries = 0;
