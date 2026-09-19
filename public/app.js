@@ -395,7 +395,6 @@ window.onYouTubeIframeAPIReady = () => {
           + ' | hidden=' + document.hidden + ' float=' + !!Player.floatOn);
         if (e.data === YT.PlayerState.PLAYING) {
           Player.wantPlaying = true;
-          keepMediaSession();
           // setelah bingkai YouTube memasang sesinya sendiri, bukan sebelum
           setTimeout(assertMediaSession, 900);
         }
@@ -965,89 +964,46 @@ function assertMediaSession() {
   Diag.add('mediasession', 'dipasang ulang | hidden=' + document.hidden + ' main=' + isPlayingNow());
 }
 
-/* ---------- menahan sesi media supaya notifikasinya ada ----------
+/* ---------- menahan sesi media, dicoba lalu dicabut ----------
  *
- * Yang membedakan ponsel mode biasa dari mode desktop ternyata bukan sekadar
- * musiknya berhenti, melainkan tidak ada apa pun yang muncul di bilah
- * notifikasi. Itu dua hal yang berbeda dan urutannya penting.
+ * Bagian ini pernah ada dan sengaja dihapus. Catatannya ditinggal supaya
+ * percobaan yang sama tidak diulang oleh siapa pun, termasuk saya sendiri.
  *
- * Chrome membuat notifikasi media hanya kalau ada media yang benar benar
- * berjalan di halaman ini. Judul dan sampul yang sudah kita pasang lewat
- * MediaSession tidak pernah cukup dengan sendirinya, karena metadata hanya
- * mengisi notifikasi yang sudah ada, bukan memunculkannya. Satu satunya yang
- * berbunyi di sini ada di dalam bingkai YouTube, milik origin lain. Begitu
- * bingkai itu berhenti waktu tabnya ditinggal, tidak ada lagi media yang
- * berjalan, jadi tidak ada notifikasi, jadi tidak ada tombol untuk melanjutkan.
- * Di mode desktop bingkainya tidak berhenti, notifikasinya terbentuk, dan
- * sejak itu tombol putarnya bisa dipakai.
+ * Alasannya masuk akal waktu itu. Di ponsel mode biasa tidak ada apa pun yang
+ * muncul di bilah notifikasi, dan sebabnya jelas: Chrome hanya memunculkan
+ * notifikasi media untuk media yang benar benar berjalan di halaman ini,
+ * sedangkan satu satunya yang berbunyi ada di dalam bingkai YouTube milik
+ * origin lain. Begitu bingkai itu diam, tidak ada yang bisa ditempeli
+ * notifikasi. Metadata MediaSession tidak menolong karena metadata hanya
+ * mengisi notifikasi yang sudah ada, bukan memunculkannya.
  *
- * Maka halaman ini memegang satu media miliknya sendiri: potongan nyaris
- * senyap yang diputar berulang. Suaranya tidak terdengar, tetapi bagi Chrome
- * halaman ini punya media yang berjalan, jadi notifikasinya dibuat atas nama
+ * Maka halaman ini sempat memegang medianya sendiri, potongan senyap tiga
+ * puluh detik yang diputar berulang, supaya notifikasinya terbentuk atas nama
  * halaman ini dan bertahan meski bingkai YouTube berhenti.
  *
- * Yang diharapkan dari situ ada dua, dan keduanya berguna walau yang pertama
- * gagal. Pertama, menekan putar di notifikasi memanggil penangan kita dengan
- * izin interaksi dari pengguna, yang tidak dimiliki percobaan otomatis di
- * bawah, jadi permintaan putarnya punya peluang diterima. Kedua, kalaupun
- * ditolak, mengetuk notifikasinya membuka kembali tabnya dan musiknya lanjut
- * sendiri lewat penangan keterlihatan. Dua duanya lebih baik daripada mati
- * tanpa jejak.
+ * Bagian itu berhasil, dan justru hasilnya yang menutup persoalannya.
+ * Notifikasinya muncul lengkap dengan judul, artis, dan sampul yang benar,
+ * dan setelah penangan dipasang ulang (lihat assertMediaSession) tombolnya
+ * pun sampai ke sini: menekan lagu berikutnya benar benar mengganti lagu,
+ * terlihat dari judul di notifikasi yang ikut berubah. Tetapi suaranya tetap
+ * tidak ada. Itu percobaan yang paling menentukan, karena tombol notifikasi
+ * membawa izin interaksi dari pengguna, sesuatu yang tidak dimiliki percobaan
+ * otomatis mana pun. Permintaan putar dengan izin itu pun ditolak.
  *
- * Hanya untuk ponsel mode biasa. Di tempat lain notifikasinya sudah terbentuk
- * sendiri dan menambah media kedua cuma bikin ikon suara menyala tanpa sebab.
+ * Kesimpulannya: bingkai YouTube menolak berbunyi selama halamannya
+ * ditinggal, dan penolakan itu tidak bisa ditawar dari sisi halaman.
+ *
+ * Yang tertinggal malah lebih buruk daripada diam. Notifikasinya menyala
+ * seolah musiknya jalan padahal tidak ada suara, menekan jeda tidak mengubah
+ * tampilannya karena yang dianggap berjalan adalah potongan senyap tadi, dan
+ * menekan lagu berikutnya diam diam mengganti antrean orang tanpa terdengar
+ * apa apa. Notifikasi yang berbohong lebih menyesatkan daripada tidak ada
+ * notifikasi sama sekali, jadi dicabut.
+ *
+ * Yang tetap dipakai dari percobaan ini cuma assertMediaSession, karena di
+ * perangkat yang notifikasinya memang terbentuk sendiri, memasang ulang
+ * penangan tetap membuat tombolnya diteruskan ke sini.
  */
-let mediaKeeper = null;
-
-/* Potongan PCM 8 bit satu kanal, dibuat di sini supaya tidak ada berkas
-   tambahan yang perlu diunduh. Panjangnya 30 detik karena Chrome mengabaikan
-   media yang terlalu pendek.
-
-   Isinya senyap betul, semua sampel di titik tengah. Sempat dicoba diberi
-   amplitudo satu langkah terkecil supaya tidak ada yang menganggapnya kosong,
-   tetapi bergantian tiap sampel pada 8000 Hz itu justru nada 4 kHz, persis
-   rentang yang paling mudah terdengar telinga, dan akan terdengar sebagai
-   desing halus di ruangan sepi. Yang dicari Chrome hanyalah adanya jalur
-   audio, bukan seberapa keras isinya, jadi senyap sudah cukup. */
-function buildQuietTrack() {
-  const rate = 8000, detik = 30, n = rate * detik;
-  const buf = new ArrayBuffer(44 + n);
-  const v = new DataView(buf);
-  const tulis = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
-  tulis(0, 'RIFF'); v.setUint32(4, 36 + n, true); tulis(8, 'WAVE');
-  tulis(12, 'fmt '); v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate, true);
-  v.setUint16(32, 1, true); v.setUint16(34, 8, true);
-  tulis(36, 'data'); v.setUint32(40, n, true);
-  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
-  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-}
-
-function keepMediaSession() {
-  if (!isPhoneDefaultMode()) return;
-  if (mediaKeeper) {
-    if (mediaKeeper.paused) { const r = mediaKeeper.play(); if (r && r.catch) r.catch(() => {}); }
-    return;
-  }
-  try {
-    const a = document.createElement('audio');
-    a.src = buildQuietTrack();
-    a.loop = true;
-    a.volume = 1;          // dibiarkan penuh, karena yang membisukan justru membatalkan sesinya
-    a.playsInline = true;
-    a.setAttribute('aria-hidden', 'true');
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    mediaKeeper = a;
-    a.addEventListener('pause', () => Diag.add('penahan', 'dijeda | hidden=' + document.hidden));
-    a.addEventListener('play', () => Diag.add('penahan', 'berjalan'));
-    const r = a.play();
-    if (r && r.catch) r.catch((e) => Diag.add('penahan-gagal', String(e && e.name || e)));
-  } catch (e) {
-    Diag.add('penahan-gagal', String(e && e.name || e));
-  }
-}
 
 /* Keep the OS notification and lock screen honest about what is playing. */
 function syncMediaSession(playing) {
@@ -3905,9 +3861,11 @@ window.addEventListener('load', () => setTimeout(maybeShowAppBanner, 300));
  *     background. The notification controls work too. Same on a tablet, which
  *     never sends a phone user agent in the first place.
  *   - Phone browser in its normal mode: it stops and stays stopped. Every
- *     retry is refused, and so is the notification. Giving the page a silent
- *     track of its own, so it counts as a page that is playing media, changed
- *     nothing.
+ *     retry is refused. Giving the page a media element of its own does raise
+ *     a working notification, and its buttons do reach this code, but asking
+ *     to play from inside one of those handlers is refused just the same. That
+ *     is the decisive test, because a notification press carries the user
+ *     activation that no automatic retry has, and it still made no sound.
  *
  *   - The Android app, same phone and same YouTube frame, keeps playing. The
  *     only thing done differently there is that its WebView never reports
@@ -3924,16 +3882,16 @@ window.addEventListener('load', () => setTimeout(maybeShowAppBanner, 300));
  * the notification is not missing because playback is blocked by some policy,
  * playback stopping is why the notification never exists. Chrome only raises
  * one for media that is actually running, so once the frame goes quiet there
- * is nothing to attach it to. See keepMediaSession for what is done about
- * that.
+ * is nothing to attach it to. Holding a media element of our own does raise
+ * that notification, and it was still removed again: the note beside
+ * assertMediaSession says what it settled and why keeping it was worse.
  *
  * The stopping itself is not something a page can talk its way out of. It
  * cannot set its own user agent, and the frame that makes the sound belongs
- * to another origin. So the honest things left are what this code does: hold
- * a media session of our own so a notification exists to press; keep asking
- * while the tab is hidden, because on the desktop site that is what makes it
- * work; pick playback back up on return; and say plainly which switch fixes
- * it rather than let the music die without explanation.
+ * to another origin. So the honest things left are what this code does: keep
+ * asking while the tab is hidden, because on the desktop site that is what
+ * makes it work; pick playback back up on return; and say plainly which
+ * switch fixes it rather than let the music die without explanation.
  */
 const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
@@ -3982,12 +3940,6 @@ document.addEventListener('visibilitychange', () => {
 // Backstop for a browser that pauses without reporting a state change.
 setInterval(() => {
   if (!Player.yt || !Player.ready) return;
-  // Penahan sesi media harus tetap berjalan justru selama tabnya ditinggal,
-  // karena di situlah notifikasinya dibutuhkan. Kalau browser sempat
-  // menjedanya, dijalankan lagi.
-  if (mediaKeeper && mediaKeeper.paused) {
-    try { const r = mediaKeeper.play(); if (r && r.catch) r.catch(() => {}); } catch {}
-  }
   if (!document.hidden) { bgResumeTries = 0; return; }
   if (!Player.wantPlaying || Player.cued) return;
   if (bgResumeTries >= BG_RESUME_MAX) return;
