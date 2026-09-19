@@ -842,8 +842,8 @@ function setupMediaSession() {
   on('previoustrack', prevTrack);
   on('nexttrack', () => nextTrack(false));
   on('play', () => { if (!isPlayingNow()) togglePlay(); });
-  on('pause', () => { if (isPlayingNow()) togglePlay(); });
-  on('stop', () => { if (isPlayingNow()) togglePlay(); });
+  on('pause', () => commandPause());
+  on('stop', () => commandPause());
   // tanpa ini layar kunci tidak menampilkan penggeser dan tombol lompat
   on('seekbackward', (d) => seekRelative(-(d && d.seekOffset ? d.seekOffset : 10)));
   on('seekforward', (d) => seekRelative(d && d.seekOffset ? d.seekOffset : 10));
@@ -3414,22 +3414,25 @@ function drawPipFrame(pct) {
   }
 }
 
-/* ---------- jembatan antara video PiP dan pemutar sebenarnya ----------
+/* ---------- video kanvas untuk jendela PiP di ponsel dan tablet ----------
  *
- * Di ponsel dan tablet, jendela PiP dibuat dari elemen <video> yang isinya
- * kanvas gambaran kita sendiri. Tombol putar dan jeda di jendela itu, dan juga
- * di notifikasi media, milik browser dan bekerja pada elemen video tersebut.
- * Musiknya sendiri berbunyi di frame YouTube, bukan di video itu. Karena tidak
- * ada yang menghubungkan keduanya, menekan jeda hanya membekukan gambarnya dan
- * musiknya jalan terus.
+ * Jendelanya dibuat dari elemen <video> berisi kanvas gambaran sendiri,
+ * sementara musiknya berbunyi di frame YouTube.
  *
- * Dua arah harus disambung:
- *   video dijeda oleh browser  -> musik ikut dijeda
- *   musik dijeda dari mana pun -> video ikut dijeda, supaya browser dan
- *                                 notifikasinya tidak salah menampilkan keadaan
+ * Perintah putar dan jeda TIDAK diambil dari event video ini. Sempat dicoba
+ * begitu dan akibatnya fatal: di ponsel, browser menjeda video kanvasnya
+ * sendiri begitu halaman disembunyikan, dan itu terbaca sebagai perintah jeda
+ * sehingga musiknya langsung mati. Di tablet videonya tidak dijeda, jadi
+ * gejalanya hanya muncul di ponsel.
  *
- * Penanda _pipSelf dipakai supaya perubahan yang kita buat sendiri tidak
- * terbaca sebagai perintah dari pengguna dan memantul balik.
+ * Yang benar, perintahnya lewat Media Session, yang penangannya sudah
+ * didaftarkan di setupMediaSession. Tombol sebelumnya dan berikutnya yang
+ * muncul di jendela PiP membuktikan jalur itu memang yang dipakai Android;
+ * elemen video biasa tidak punya tombol lompat lagu.
+ *
+ * Tugas berkas ini tinggal dua: menjaga videonya tetap berjalan supaya
+ * gambarnya tidak mati, dan menyamakan keadaannya dengan musik supaya
+ * browser tidak salah menampilkan.
  */
 let _pipSelf = false;
 
@@ -3438,11 +3441,12 @@ function bindPipVideo(video) {
   video._pipBound = true;
   video.addEventListener('pause', () => {
     if (_pipSelf || !Player.floatOn) return;
-    if (isPlayingNow()) commandPause();
-  });
-  video.addEventListener('play', () => {
-    if (_pipSelf || !Player.floatOn) return;
-    if (!isPlayingNow()) togglePlay();
+    // Bukan perintah pengguna, melainkan browser yang menidurkan videonya.
+    // Hidupkan lagi selama musiknya memang sedang ingin berjalan.
+    if (!Player.wantPlaying) return;
+    _pipSelf = true;
+    try { const r = video.play(); if (r && r.catch) r.catch(() => {}); } catch {}
+    setTimeout(() => { _pipSelf = false; }, 0);
   });
 }
 
@@ -3456,7 +3460,6 @@ function syncPipVideo(playing) {
     if (playing) { const r = video.play(); if (r && r.catch) r.catch(() => {}); }
     else video.pause();
   } catch {}
-  // dilepas setelah event pause/play sempat terkirim
   setTimeout(() => { _pipSelf = false; }, 0);
 }
 
@@ -3466,7 +3469,7 @@ async function startSystemPip() {
   if (!video || !canvas) return false;
   if (!document.pictureInPictureEnabled && !video.webkitSetPresentationMode) return false;
   try {
-    drawPipFrame();
+    drawPipFrame(0);
     if (!video.srcObject) video.srcObject = canvas.captureStream(15);
     video.muted = true;
     video.playsInline = true;
@@ -3474,6 +3477,13 @@ async function startSystemPip() {
     _pipSelf = true;
     await video.play();
     _pipSelf = false;
+    // Beberapa bingkai dulu sebelum jendelanya diminta. Tanpa ini jendela
+    // sempat terbuka sebelum kanvasnya sempat tergambar, dan yang terlihat
+    // layar hitam.
+    for (let i = 0; i < 3; i++) {
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      drawPipFrame(0);
+    }
     if (document.pictureInPictureElement) {
       await document.exitPictureInPicture();
     }
