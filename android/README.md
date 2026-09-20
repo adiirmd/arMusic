@@ -1,16 +1,30 @@
 # AR Music — aplikasi Android
 
-Pembungkus WebView native untuk [music.adiirmd.my.id](https://music.adiirmd.my.id).
+Pembungkus WebView native untuk [music.adiirmd.id](https://music.adiirmd.id).
 Bukan Capacitor dan bukan Cordova: hanya satu Activity, satu Service, dan tiga
 dependensi AndroidX. Dipilih begitu supaya APK-nya kecil, izinnya sedikit, dan
 seluruh isinya mudah dibaca ulang.
 
 | | |
 | --- | --- |
-| Package | `id.my.adiirmd.armusic` |
+| Package | `id.my.adiirmd.armusic` (tetap, lihat catatan di bawah) |
 | minSdk | 24 (Android 7.0) |
 | targetSdk | 35 (Android 15) |
 | Bahasa | Kotlin |
+
+### Kenapa package-nya masih `id.my`
+
+Namanya diambil dari domain lama, `music.adiirmd.my.id`. Alamat webnya sudah
+pindah ke `music.adiirmd.id`, tetapi nama package-nya sengaja dibiarkan.
+
+Android mengenali aplikasi yang terpasang dari nama itu. Kalau diganti, yang
+terjadi bukan pembaruan melainkan pemasangan aplikasi kedua di sebelahnya, dan
+daftar putar serta riwayat orang tertinggal di aplikasi yang lama. Nama package
+tidak pernah terlihat oleh pemakainya, jadi tidak ada yang didapat dari
+menggantinya dan ada yang hilang.
+
+Alamat yang benar benar dibuka aplikasi ada satu tempat saja, `SITE_HOST` di
+`MainActivity.kt`.
 
 ---
 

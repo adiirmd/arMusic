@@ -2,7 +2,7 @@
 
 Pemutar musik web gratis. Cari, telusuri, dan putar lagu dari YouTube Music lengkap dengan lirik tersinkron, antrean, dan library lokal tanpa akun, tanpa iklan, dan tanpa build step.
 
-**Live:** [music.adiirmd.my.id](https://music.adiirmd.my.id)
+**Live:** [music.adiirmd.id](https://music.adiirmd.id)
 
 ---
 

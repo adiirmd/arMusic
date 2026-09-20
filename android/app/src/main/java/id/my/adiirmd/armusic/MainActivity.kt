@@ -311,7 +311,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val SITE_HOST = "music.adiirmd.my.id"
+        /*
+         * The site this app is a window onto.
+         *
+         * The package name, id.my.adiirmd.armusic, still carries the domain
+         * this used to live on, and stays that way on purpose: Android
+         * identifies an installed app by that string, so changing it would not
+         * update anyone's app, it would install a second one beside it and
+         * leave their playlists behind in the first.
+         */
+        const val SITE_HOST = "music.adiirmd.id"
         const val SITE_URL = "https://$SITE_HOST/"
         val BG = Color.parseColor("#070c16")
     }
