@@ -1242,14 +1242,30 @@ async function loadSponsorBlock(videoId) {
     if (Player.sbSegments.length && Player.sbEnabled) toast(tr('toast.sbSegments', { n: Player.sbSegments.length }));
   } catch {}
 }
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-function cycleSpeed() {
-  const i = SPEEDS.indexOf(Player.speed);
-  Player.speed = SPEEDS[(i + 1) % SPEEDS.length];
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+function setSpeed(r) {
+  Player.speed = r;
   if (Player.yt && Player.ready) PB.rate(Player.speed);
   $('#np-speed span').textContent = Player.speed + '×';
   persistQueue();
   toast(tr('toast.speed', { n: Player.speed }));
+}
+function openSpeedPicker() {
+  const modal = $('#modal');
+  const body = $('#modal-body');
+  const actions = $('.modal-actions');
+  if (actions) actions.classList.remove('hidden');
+  $('#modal-title').textContent = tr('modal.speedTitle');
+  const cur = Player.speed || 1;
+  body.innerHTML = SPEEDS.map((s) => `<button type="button" class="modal-row speed-row${s === cur ? ' on' : ''}" data-speed="${s}">
+      <span>${s === 1 ? tr('modal.speedNormal') : s + '×'}</span>${s === cur ? icon('i-check') : ''}
+    </button>`).join('');
+  $$('[data-speed]', body).forEach((b) => b.addEventListener('click', () => {
+    const s = Number(b.dataset.speed);
+    if (s !== Player.speed) setSpeed(s);
+    closeModal();
+  }));
+  modal.classList.remove('hidden');
 }
 function toggleSB() {
   Player.sbEnabled = !Player.sbEnabled;
@@ -2911,10 +2927,10 @@ function openNowPlayingMore() {
     ${row('sb', 'i-next', tr(Player.sbEnabled ? 'more.sbOn' : 'more.sb'))}`;
   $$('[data-npact]', body).forEach((b) => b.addEventListener('click', () => {
     const a = b.dataset.npact;
+    if (a === 'speed') { openSpeedPicker(); return; }
     if (a === 'dl') downloadSong(song);
     else if (a === 'share') shareSong(song);
     else if (a === 'artist') goToArtist(song);
-    else if (a === 'speed') cycleSpeed();
     else if (a === 'float') toggleFloatWidget();
     else if (a === 'quality') toggleQuality();
     else if (a === 'sb') toggleSB();
@@ -3368,7 +3384,7 @@ $('#np-repeat').addEventListener('click', function () {
   persistQueue();
   toast(['Repeat off', 'Repeat all', 'Repeat one'][Player.repeat]);
 });
-$('#np-speed').addEventListener('click', cycleSpeed);
+$('#np-speed').addEventListener('click', openSpeedPicker);
 $('#np-float').addEventListener('click', toggleFloatWidget);
 $('#mini-float').addEventListener('click', (e) => { e.stopPropagation(); toggleFloatWidget(); });
 $('#np-quality').addEventListener('click', toggleQuality);

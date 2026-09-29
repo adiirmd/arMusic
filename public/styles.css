@@ -1017,6 +1017,8 @@ body:not(.paused) .np-art-wrap { transform: scale(1.01); }
 html[data-theme="light"] .pl-pick { background: #eef4fc; }
 html[data-theme="light"] .pl-pick:hover { background: #e2ecf9; }
 html[data-theme="light"] .pl-pick-name { color: var(--text); }
+.speed-row.on { color: var(--accent-bright); font-weight: 700; }
+.speed-row.on .ic { color: var(--accent-bright); margin-left: auto; }
 .modal-row.disabled, .modal-row[disabled] { opacity: 0.35; pointer-events: none; }
 .sm-head { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
 .sm-head img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: var(--elevated); flex-shrink: 0; }
