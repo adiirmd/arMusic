@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#070c16" />
 <title>AR Music by Adi Romadhon</title>
-<meta name="description" content="AR Music, a free web music player by Adi Romadhon (adiirmd). Search and play songs from YouTube Music with synced lyrics, queue, and a local library, no account and no ads." />
+<meta name="description" content="AR Music, a free web music player by Adi Romadhon (adiirmd). Search and play songs with synced lyrics, queue, and a local library, no account and no ads." />
 <meta name="author" content="Adi Romadhon" />
 <link rel="canonical" href="https://music.adiirmd.id/" />
 
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://music.adiirmd.id/" />
 <meta property="og:title" content="AR Music by Adi Romadhon" />
-<meta property="og:description" content="Free web music player by Adi Romadhon (adiirmd). Search and play songs from YouTube Music with synced lyrics and a local library." />
+<meta property="og:description" content="Free web music player by Adi Romadhon (adiirmd). Search and play songs with synced lyrics and a local library." />
 <meta property="og:image" content="https://music.adiirmd.id/icon-512.png" />
 <meta name="twitter:card" content="summary" />
 
@@ -42,11 +42,10 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
 <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="preload" href="/fonts/plus-jakarta-sans-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link href="/fonts/fonts.css" rel="stylesheet" />
 <link rel="preload" as="image" href="/logo.png" />
-<link rel="stylesheet" href="styles.css?v=20260919q" />
+<link rel="stylesheet" href="styles.css?v=20261003a" />
 <script>
 try {
   // dibaca sebelum app.js sempat memindahkan simpanan lama, jadi awalan lama
@@ -246,8 +245,8 @@ try {
             <button id="np-share" class="pill-btn np-extra" data-i18n-title="player.share" title="Share"><svg class="ic"><use href="#i-share"/></svg><span data-i18n="player.share">Share</span></button>
             <button id="np-speed" class="pill-btn np-extra" data-i18n-title="player.speed" title="Playback speed"><svg class="ic"><use href="#i-clock"/></svg><span>1×</span></button>
             <button id="np-float" class="pill-btn np-extra" data-i18n-title="player.widget" title="Floating widget"><svg class="ic"><use href="#i-pip"/></svg><span data-i18n="player.widget">Widget</span></button>
-            <button id="np-quality" class="pill-btn np-extra" data-i18n-title="player.qualityHint" title="YouTube Music audio. Tap for YouTube max quality"><span data-i18n="player.quality">Quality</span></button>
-            <button id="np-sb" class="pill-btn np-extra" data-i18n-title="player.sbHint" title="Skip sponsors automatically"><svg class="ic"><use href="#i-next"/></svg><span>SB</span></button>
+            <button id="np-quality" class="pill-btn np-extra" data-i18n-title="player.qualityHint" title="Standard quality. Tap for high quality"><span data-i18n="player.quality">Quality</span></button>
+            <button id="np-sb" class="pill-btn np-extra" data-i18n-title="player.sbHint" title="Skip intros and talk automatically"><svg class="ic"><use href="#i-next"/></svg><span>SB</span></button>
             <div class="np-volume">
               <button type="button" id="np-mute" class="vol-btn" data-i18n-title="player.mute" title="Mute"><svg class="ic vol-ic"><use href="#i-volume"/></svg></button><input type="range" id="np-volume" min="0" max="100" value="100" />
             </div>
@@ -298,12 +297,13 @@ try {
     </div>
   </div>
 
-  <!-- hidden YouTube player + canvas/video used for OS Picture-in-Picture (recent apps) -->
-  <div id="yt-holder"><div id="yt-player"></div></div>
+  <!-- the audio element; its only source is this origin's /api/play -->
+  <audio id="audio-player" preload="auto" playsinline></audio>
+  <!-- canvas/video used for OS Picture-in-Picture (recent apps) -->
   <canvas id="pip-canvas" width="480" height="270"></canvas>
   <video id="pip-video" muted playsinline autoplay></video>
 </div>
-<script src="i18n.js?v=20260919w"></script>
-<script src="app.js?v=20260919w"></script>
+<script src="i18n.js?v=20261003a"></script>
+<script src="app.js?v=20261003a"></script>
 </body>
 </html>

@@ -124,7 +124,7 @@ memicu peringatan.
 
 - Ditandatangani dengan skema v1, v2, dan v3. Play Protect membaca v2/v3.
 - `usesCleartextTraffic="false"` plus network security config: semua lalu lintas wajib HTTPS.
-- WebView dikunci ke domain sendiri dan domain YouTube yang dibutuhkan pemutar. Tautan lain dilempar ke browser, jadi aplikasi ini tidak bisa dijadikan peramban umum.
+- WebView dikunci ke domain sendiri. Tautan lain dilempar ke browser, jadi aplikasi ini tidak bisa dijadikan peramban umum.
 - `allowFileAccess` dan `allowContentAccess` dimatikan, jadi WebView tidak bisa menyentuh berkas perangkat.
 - Tidak ada pemuatan kode dinamis, tidak ada reflection akal-akalan, tidak ada packer. R8 hanya dipakai untuk minify biasa. Obfuscation berlebihan justru membuat aplikasi tampak seperti malware.
 - Tidak ada SDK iklan maupun pelacak.

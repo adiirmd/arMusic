@@ -1,7 +1,8 @@
 /* ============================================================
-   AR Music — SPA frontend
-   Streams via the official YouTube IFrame player, metadata via
-   the local proxy to YouTube Music, synced lyrics via LRCLIB.
+   AR Music, SPA frontend
+   Audio comes from this origin's /api/play/<trackId>, played by an
+   <audio> element. Metadata and lyrics come from the same origin. The
+   page never connects to any upstream host.
    ============================================================ */
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -10,19 +11,23 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 
 const icon = (id, cls = 'ic') => `<svg class="${cls}"><use href="#${id}"/></svg>`;
 
-/* Every call carries the language the app is set to.
- *
- * Without it the server asked YouTube Music in Indonesian no matter what, and
- * the words that came back could not be fixed anywhere on this side: the kind
- * of thing on a song row, the shelf titles on Home, the group headings in
- * search. The country is not sent, because that would move the charts and the
- * recommendations to another country, which is a different thing entirely. */
-const api = async (path) => {
+/* Every call carries the language the app is set to, so the words that come
+   back (kinds, shelf titles, headings) match it. The country is not sent. */
+/* Identical calls made at the same moment share one request. Starting a song
+   used to ask for its radio queue twice in the same tick, which on a slow
+   line is bandwidth taken straight from the audio. */
+const apiInflight = new Map();
+const api = (path) => {
   const lang = (typeof I18N !== 'undefined' && I18N.currentLang() === 'id') ? 'id' : 'en';
   const url = path + (path.includes('?') ? '&' : '?') + 'hl=' + lang;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`${path} -> ${r.status}`);
-  return r.json();
+  if (apiInflight.has(url)) return apiInflight.get(url);
+  const p = (async () => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`${path} -> ${r.status}`);
+    return r.json();
+  })().finally(() => apiInflight.delete(url));
+  apiInflight.set(url, p);
+  return p;
 };
 
 /* The date above the greeting.
@@ -86,10 +91,8 @@ function updateThemeIcon() {
 }
 /* ---------- language ----------
  *
- * Switching redraws instead of reloading. A reload would take the YouTube
- * frame down with it, and anyone who changes the language while a song is
- * playing would lose the song. So every place that holds wording is drawn
- * again by hand, and the player is left alone.
+ * Switching redraws instead of reloading, so whatever is playing keeps
+ * playing. Every place that holds wording is drawn again by hand.
  */
 function updateLangButton() {
   const el = $('#lang-code');
@@ -170,7 +173,7 @@ function updatePanelButtons() {
 }
 function focusedSong() { return Player.pending || Player.current; }
 function isPreviewing() {
-  return !!(Player.pending && (!Player.current || Player.pending.videoId !== Player.current.videoId));
+  return !!(Player.pending && (!Player.current || Player.pending.trackId !== Player.current.trackId));
 }
 
 /* An event log used to live here, along with a hidden page at #/log to read
@@ -214,12 +217,44 @@ const store = {
     }
   } catch {}
 })();
+
+/* Field names in saved data. Libraries saved before this version used other
+   names for the same fields; they are renamed once, in place, before
+   anything reads them. Runs again after a backup is restored. */
+const OLD_FIELD_NAMES = {
+  videoId: 'trackId', browseId: 'pageId', playlistId: 'listId', browseType: 'pageType',
+  lyricsBrowseId: 'lyricsId', relatedBrowseId: 'relatedId', artistBrowseId: 'artistId', watchPlaylist: 'mixList',
+};
+const STORE_KEYS_WITH_SONGS = ['fav', 'pls', 'hist', 'sav', 'stats', 'qstate'];
+function renameFields(v, depth = 0) {
+  if (depth > 12 || v == null) return v;
+  if (Array.isArray(v)) return v.map((x) => renameFields(x, depth + 1));
+  if (typeof v === 'object') {
+    const o = {};
+    for (const k of Object.keys(v)) {
+      const nk = OLD_FIELD_NAMES[k] || k;
+      if (nk !== k && Object.prototype.hasOwnProperty.call(v, nk)) continue;
+      o[nk] = renameFields(v[k], depth + 1);
+    }
+    return o;
+  }
+  return v;
+}
+function renameStoredFields() {
+  for (const k of STORE_KEYS_WITH_SONGS) {
+    const raw = localStorage.getItem(KEY + k);
+    if (!raw || !/"(videoId|browseId|playlistId|browseType|lyricsBrowseId|relatedBrowseId|artistBrowseId|watchPlaylist)"/.test(raw)) continue;
+    try { store.set(k, renameFields(JSON.parse(raw))); } catch {}
+  }
+}
+renameStoredFields();
+
 const Library = {
   get favorites() { return store.get('fav', []); },
-  isFav(id) { return this.favorites.some((s) => s.videoId === id); },
+  isFav(id) { return this.favorites.some((s) => s.trackId === id); },
   toggleFav(song) {
     let f = this.favorites;
-    if (this.isFav(song.videoId)) { f = f.filter((s) => s.videoId !== song.videoId); toast(tr('toast.removedFavorites')); }
+    if (this.isFav(song.trackId)) { f = f.filter((s) => s.trackId !== song.trackId); toast(tr('toast.removedFavorites')); }
     else { f.unshift(song); toast(tr('toast.addedFavorites')); }
     store.set('fav', f);
     updateLikeButtons();
@@ -235,14 +270,14 @@ const Library = {
     const pls = this.playlists;
     const pl = pls.find((p) => p.id === pid);
     if (!pl) return;
-    if (!pl.tracks.some((t) => t.videoId === song.videoId)) pl.tracks.push(song);
+    if (!pl.tracks.some((t) => t.trackId === song.trackId)) pl.tracks.push(song);
     store.set('pls', pls);
   },
   removeFromPlaylist(pid, vid) {
     const pls = this.playlists;
     const pl = pls.find((p) => p.id === pid);
     if (!pl) return;
-    pl.tracks = pl.tracks.filter((t) => t.videoId !== vid);
+    pl.tracks = pl.tracks.filter((t) => t.trackId !== vid);
     store.set('pls', pls);
   },
   deletePlaylist(pid) { store.set('pls', this.playlists.filter((p) => p.id !== pid)); renderSidebarLibrary(); },
@@ -268,51 +303,53 @@ const Library = {
     return true;
   },
   get saved() { return store.get('sav', []); },
-  isSaved(browseId) { return this.saved.some((s) => s.browseId === browseId); },
+  isSaved(pageId) { return this.saved.some((s) => s.pageId === pageId); },
   toggleSaved(item) {
     let sv = this.saved;
-    if (this.isSaved(item.browseId)) { sv = sv.filter((s) => s.browseId !== item.browseId); toast(tr('toast.removedLibrary')); }
+    if (this.isSaved(item.pageId)) { sv = sv.filter((s) => s.pageId !== item.pageId); toast(tr('toast.removedLibrary')); }
     else { sv.unshift(item); toast(tr('toast.savedLibrary')); }
     store.set('sav', sv);
     renderSidebarLibrary();
   },
   get history() { return store.get('hist', []); },
   pushHistory(song) {
-    let h = this.history.filter((s) => s.videoId !== song.videoId);
+    let h = this.history.filter((s) => s.trackId !== song.trackId);
     h.unshift({ ...song, playedAt: Date.now() });
     store.set('hist', h.slice(0, 100));
     // play stats (local scrobble)
     const st = store.get('stats', {});
-    const k = song.videoId;
+    const k = song.trackId;
     if (!st[k]) st[k] = { title: song.title, artist: song.artist || '', thumbnail: song.thumbnail, plays: 0, secs: 0, last: 0 };
     st[k].plays++; st[k].last = Date.now();
     st[k].title = song.title; st[k].thumbnail = song.thumbnail;
     store.set('stats', st);
   },
   get stats() { return store.get('stats', {}); },
-  addListenTime(videoId, secs) {
+  addListenTime(trackId, secs) {
     const st = store.get('stats', {});
-    if (st[videoId]) { st[videoId].secs += secs; store.set('stats', st); }
+    if (st[trackId]) { st[trackId].secs += secs; store.set('stats', st); }
   },
 };
 
 /* ================= player state ================= */
+/* Player state numbers used across the app. */
+const PS = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 };
+
 const Player = {
-  yt: null,
+  el: null,
   ready: false,
   queue: [],
   index: -1,
   shuffle: false,
   repeat: 0, // 0 none, 1 all, 2 one
   lyrics: { synced: null, plain: null, source: null, lines: [] },
-  lyricsBrowseId: null,
-  relatedBrowseId: null,
+  lyricsId: null,
+  relatedId: null,
   sleepTimer: null,
   speed: 1,
   sbSegments: [],
   sbEnabled: store.get('sb_on', true),
-  hq: store.get('yt_hq', false), // false = YouTube Music audio, true = YouTube max quality
-  quality: 'hd720',
+  hq: store.get('yt_hq', false), // false = standard (AAC), true = high (Opus when there is one)
   cued: false,
   wantPlaying: false, // user intent, so a background pause can be told apart from a deliberate one
   pending: null, // song shown in Now Playing while previous track keeps playing
@@ -320,157 +357,248 @@ const Player = {
   get current() { return this.queue[this.index] || null; },
 };
 
-/* Playback uses the official YouTube IFrame.
-   Default: YouTube Music audio version (official audio / ATV) at hd720.
-   Quality ON: YouTube max (1080p–4K) for the highest audio bitrate. */
-const QUALITY_RANK = ['highres', 'hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
-const qualityRank = (q) => { const i = QUALITY_RANK.indexOf(q); return i < 0 ? 99 : i; };
-function bestQuality() {
-  if (!Player.yt || !Player.ready || !Player.yt.getAvailableQualityLevels) return 'highres';
-  const levels = Player.yt.getAvailableQualityLevels() || [];
-  return QUALITY_RANK.find((q) => levels.includes(q)) || levels[0] || 'highres';
+/* The only address audio is ever loaded from. Same origin, track id only. */
+// High quality is Opus in WebM, which not every browser plays in an audio
+// element. Where it does not, standard quality is used whatever the setting.
+const CAN_WEBM = (() => {
+  try { return !!document.createElement('audio').canPlayType('audio/webm; codecs="opus"'); } catch { return false; }
+})();
+function playUrl(trackId) {
+  return '/api/play/' + encodeURIComponent(trackId) + (Player.hq && CAN_WEBM ? '?q=hi' : '');
 }
-function suggestedQuality() { return Player.hq ? 'highres' : 'hd720'; }
-function applyPlaybackQuality() {
-  if (!Player.yt || !Player.ready) return;
-  if (Player.hq) {
-    const best = bestQuality();
-    Player.quality = best;
-    try { Player.yt.setSize(1920, 1080); } catch {}
-    try { Player.yt.setPlaybackQuality(best); } catch {}
-    try { Player.yt.setPlaybackQualityRange(best, best); } catch {}
-  } else {
-    Player.quality = 'hd720';
-    try { Player.yt.setSize(720, 720); } catch {}
-    try { Player.yt.setPlaybackQuality('hd720'); } catch {}
-    try { Player.yt.setPlaybackQualityRange('hd720', 'hd720'); } catch {}
-  }
-}
+
 function updateQualityButton() {
   const btn = $('#np-quality');
   if (!btn) return;
   btn.classList.toggle('on', !!Player.hq);
   const span = btn.querySelector('span');
-  if (span) span.textContent = Player.hq ? 'Max' : 'Quality';
-  btn.title = Player.hq
-    ? 'YouTube max quality — tap for YouTube Music audio'
-    : 'YouTube Music audio — tap for YouTube max quality';
-  document.body.classList.toggle('hq-audio', !!Player.hq);
+  if (span) span.textContent = Player.hq ? tr('player.qualityMaxShort') : tr('player.quality');
+  btn.title = tr(Player.hq ? 'player.qualityHintMax' : 'player.qualityHint');
   syncNpMore();
 }
 function toggleQuality() {
   Player.hq = !Player.hq;
   store.set('yt_hq', Player.hq);
   updateQualityButton();
-  toast(Player.hq ? 'YouTube max quality' : 'YouTube Music audio');
-  if (Player.cued || !Player.yt || !Player.ready || !Player.current) {
-    applyPlaybackQuality();
-    return;
-  }
+  toast(tr(Player.hq ? 'toast.qualityHigh' : 'toast.qualityNormal'));
+  if (Player.cued || !Player.current) return;
+  // carry on from the same second in the other format
   const t = PB.time();
-  Player.yt.loadVideoById({
-    videoId: Player.current.videoId,
-    startSeconds: t,
-    suggestedQuality: suggestedQuality(),
-  });
-  applyPlaybackQuality();
-  setTimeout(applyPlaybackQuality, 400);
-  setTimeout(applyPlaybackQuality, 1600);
+  const wasPlaying = PB.state() === PS.PLAYING || Player.wantPlaying;
+  PB.load(Player.current.trackId, { start: t, autoplay: wasPlaying });
 }
 
+/* ---------- the audio engine ----------
+ *
+ * A thin layer over one <audio> element. It keeps the shape the rest of the
+ * app was written against (state numbers, volume 0 to 100, seek in seconds),
+ * so nothing above this has to know the engine changed.
+ *
+ * The element streams: it asks /api/play for byte ranges as it needs them and
+ * starts as soon as the first one lands. A seek is a new range request from
+ * the element itself, answered from the matching position upstream.
+ *
+ * preload is 'auto' so the element keeps a healthy buffer ahead of the play
+ * head instead of fetching just enough to start. */
 const PB = {
-  /* A thin wrapper over the YouTube player. It mirrors that player's shape,
-     state numbers included, so the rest of the app only ever calls one place.
-     There was briefly a second engine here, a media element of the page's own,
-     chasing background playback. It was taken out; the reasons are written up
-     near the bottom of this file. */
-  state() {
-    try { return Player.yt && Player.yt.getPlayerState ? Player.yt.getPlayerState() : -1; } catch { return -1; }
+  _state: PS.UNSTARTED,
+  _vol: 100,
+  _muted: false,
+  _retry: 0,
+  _stallTimer: null,
+  _lastData: 0,
+  _pendingSeek: null,
+
+  init() {
+    if (Player.el) return;
+    const a = document.getElementById('audio-player') || document.createElement('audio');
+    a.id = 'audio-player';
+    a.preload = 'auto';
+    a.setAttribute('playsinline', '');
+    if (!a.isConnected) document.body.appendChild(a);
+    Player.el = a;
+
+    const set = (st) => {
+      if (this._state === st) return;
+      this._state = st;
+      onPlayerState(st);
+    };
+    a.addEventListener('playing', () => { this._retry = 0; this._clearStall(); set(PS.PLAYING); });
+    a.addEventListener('pause', () => { if (!a.ended) set(PS.PAUSED); });
+    a.addEventListener('progress', () => { this._lastData = Date.now(); });
+    a.addEventListener('loadstart', () => { this._lastData = Date.now(); });
+    a.addEventListener('waiting', () => { if (!a.paused) { set(PS.BUFFERING); this._armStall(); } });
+    a.addEventListener('stalled', () => { if (!a.paused && !this._stallTimer) this._armStall(); });
+    a.addEventListener('ended', () => set(PS.ENDED));
+    a.addEventListener('loadedmetadata', () => {
+      if (this._pendingSeek != null) {
+        const t = this._pendingSeek;
+        this._pendingSeek = null;
+        try { a.currentTime = t; } catch {}
+      }
+    });
+    a.addEventListener('error', () => this._onError());
+
+    a.volume = Math.max(0, Math.min(1, this._vol / 100));
+    Player.ready = true;
   },
+
+  _clearStall() { clearTimeout(this._stallTimer); this._stallTimer = null; },
+  /* A connection that dies mid track can leave the element waiting forever.
+     What counts is whether bytes are still arriving, not whether the play
+     head moves: on a slow line the head can sit still for a long time while
+     data trickles in, and restarting then would throw that data away. So the
+     check is "nothing has arrived for a long while", and only then is the
+     track reopened from the second it had reached. */
+  _armStall() {
+    this._clearStall();
+    const a = Player.el;
+    const mark = () => {
+      const b = a.buffered;
+      return b.length ? b.end(b.length - 1) : 0;
+    };
+    const was = mark();
+    this._stallTimer = setTimeout(() => {
+      if (!a || a.paused || !Player.current || !Player.wantPlaying) return;
+      // still receiving: either a progress event or the buffer grew
+      if (Date.now() - this._lastData < 20000 || mark() > was) { this._armStall(); return; }
+      if (this._retry >= 2) return;
+      this._reloadAt(a.currentTime);
+    }, 20000);
+  },
+  _reloadAt(t) {
+    if (!Player.current) return;
+    this._retry++;
+    this.load(Player.current.trackId, { start: t, autoplay: Player.wantPlaying, keepRetry: true });
+  },
+  _onError() {
+    const a = Player.el;
+    if (!a || !a.getAttribute('src')) return;
+    const err = a.error;
+    // A network error partway through is usually transient: try again from
+    // the same point, twice, before calling the track unavailable.
+    if (err && err.code === 2 && this._retry < 2 && Player.current) {
+      this._reloadAt(a.currentTime || 0);
+      return;
+    }
+    this._state = PS.UNSTARTED;
+    onPlayerError(err ? err.code : 0);
+  },
+
+  load(trackId, { start = 0, autoplay = true, keepRetry = false } = {}) {
+    this.init();
+    const a = Player.el;
+    if (!keepRetry) this._retry = 0;
+    this._clearStall();
+    this._pendingSeek = start > 0 ? start : null;
+    a.src = playUrl(trackId);
+    a.playbackRate = Player.speed || 1;
+    a.defaultPlaybackRate = Player.speed || 1;
+    if (autoplay) {
+      this._state = PS.BUFFERING;
+      this.play();
+    } else {
+      this._state = PS.CUED;
+      try { a.load(); } catch {}
+    }
+  },
+  cue(trackId) {
+    this.init();
+    const a = Player.el;
+    this._clearStall();
+    this._pendingSeek = null;
+    // Nothing is fetched for a cued track until play is pressed.
+    a.removeAttribute('src');
+    try { a.load(); } catch {}
+    a.dataset.cued = trackId;
+    this._state = PS.CUED;
+  },
+  state() { return this._state; },
   time() {
-    try { return (Player.yt && Player.yt.getCurrentTime && Player.yt.getCurrentTime()) || 0; } catch { return 0; }
+    const a = Player.el;
+    if (!a) return 0;
+    if (this._pendingSeek != null) return this._pendingSeek;
+    return a.currentTime || 0;
   },
   duration() {
-    try { return (Player.yt && Player.yt.getDuration && Player.yt.getDuration()) || 0; } catch { return 0; }
+    const a = Player.el;
+    const d = a && a.duration;
+    if (Number.isFinite(d) && d > 0) return d;
+    const s = Player.current;
+    return s ? durationSecs(s.duration) : 0;
   },
-  seek(t) { try { Player.yt.seekTo(t, true); } catch {} },
-  play() { try { Player.yt.playVideo(); } catch {} },
-  pause() { try { Player.yt.pauseVideo(); } catch {} },
-  volume(v) { try { Player.yt.setVolume(Math.max(0, Math.min(100, Number(v) || 0))); } catch {} },
-  mute(on) { try { if (on) Player.yt.mute(); else Player.yt.unMute(); } catch {} },
-  rate(r) { try { Player.yt.setPlaybackRate(r); } catch {} },
+  seek(t) {
+    const a = Player.el;
+    if (!a) return;
+    const v = Math.max(0, Number(t) || 0);
+    if (a.readyState < 1) { this._pendingSeek = v; return; }
+    try { a.currentTime = v; } catch {}
+  },
+  play() {
+    const a = Player.el;
+    if (!a) return;
+    try {
+      const r = a.play();
+      if (r && r.catch) r.catch((e) => {
+        // A browser that blocks autoplay says so here. Show it as paused
+        // rather than leaving a spinner that never ends.
+        if (e && e.name === 'NotAllowedError') {
+          this._state = PS.PAUSED;
+          onPlayerState(PS.PAUSED);
+        }
+      });
+    } catch {}
+  },
+  pause() { try { Player.el && Player.el.pause(); } catch {} },
+  volume(v) {
+    this._vol = Math.max(0, Math.min(100, Number(v) || 0));
+    if (Player.el) Player.el.volume = this._vol / 100;
+  },
+  mute(on) {
+    this._muted = !!on;
+    if (Player.el) Player.el.muted = this._muted;
+  },
+  rate(r) {
+    const a = Player.el;
+    if (!a) return;
+    a.playbackRate = r;
+    a.defaultPlaybackRate = r;
+  },
 };
 
-window.onYouTubeIframeAPIReady = () => {
-  Player.yt = new YT.Player('yt-player', {
-    height: '720', width: '720',
-    host: 'https://www.youtube.com',
-    playerVars: {
-      playsinline: 1,
-      controls: 0,
-      disablekb: 1,
-      origin: location.origin,
-      modestbranding: 1,
-      rel: 0,
-      iv_load_policy: 3,
-      fs: 0,
-      vq: 'hd720',
-    },
-    events: {
-      onReady: () => {
-        Player.ready = true;
-        const v = store.get('vol', 100);
-        PB.volume(Number(v));
-        applyPlaybackQuality();
-        try {
-          const iframe = Player.yt.getIframe && Player.yt.getIframe();
-          if (iframe) iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
-        } catch {}
-      },
-      onStateChange: (e) => {
-        if (e.data === YT.PlayerState.ENDED) {
-          try {
-            const vid = Player.yt.getVideoData && Player.yt.getVideoData().video_id;
-            if (vid && Player.current && vid !== Player.current.videoId) return;
-          } catch {}
-          nextTrack(true);
-        }
-        if (e.data === YT.PlayerState.PLAYING) {
-          setTimeout(maybeRetryLyrics, 600);
-          applyPlaybackQuality();
-          setTimeout(applyPlaybackQuality, 500);
-          setTimeout(applyPlaybackQuality, 2000);
-        }
-        if (e.data === YT.PlayerState.BUFFERING) applyPlaybackQuality();
-        if (e.data === YT.PlayerState.PLAYING) {
-          Player.wantPlaying = true;
-          // after the YouTube frame has set up its own session, not before
-          setTimeout(assertMediaSession, 900);
-        }
-        resumeIfBackgroundPause(e.data);
-        syncMediaSession(e.data === YT.PlayerState.PLAYING);
-        document.body.classList.toggle('paused', e.data !== YT.PlayerState.PLAYING);
-        renderPlayButtons();
-      },
-      onPlaybackQualityChange: (e) => {
-        if (!Player.hq) return;
-        const best = bestQuality();
-        if (e.data && qualityRank(e.data) > qualityRank(best)) applyPlaybackQuality();
-      },
-      onError: () => { toast(tr('toast.trackUnavailable')); setTimeout(() => nextTrack(true), 800); },
-    },
-  });
-};
-(() => { const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); })();
+/* "3:41" or "1:02:03" to seconds, for showing a length before the element
+   knows it. */
+function durationSecs(s) {
+  const p = String(s || '').trim().split(':').map(Number);
+  if (!p.length || p.some((x) => !Number.isFinite(x))) return 0;
+  return p.reduce((acc, x) => acc * 60 + x, 0);
+}
+
+function onPlayerState(st) {
+  if (st === PS.ENDED) nextTrack(true);
+  if (st === PS.PLAYING) {
+    setTimeout(maybeRetryLyrics, 600);
+    Player.wantPlaying = true;
+  }
+  resumeIfBackgroundPause(st);
+  syncMediaSession(st === PS.PLAYING);
+  document.body.classList.toggle('paused', st !== PS.PLAYING);
+  renderPlayButtons();
+}
+
+function onPlayerError() {
+  toast(tr('toast.trackUnavailable'));
+  setTimeout(() => nextTrack(true), 800);
+}
 
 function playSong(song, queue = null, index = null) {
-  if (!song || !song.videoId) return;
+  if (!song || !song.trackId) return;
   song = normalizeSong(song);
   Player.cued = false;
   Player.pending = null;
   if (queue) {
     Player.queue = queue.map((q) => ({ ...normalizeSong(q), _user: false }));
-    let idx = index ?? queue.findIndex((q) => q.videoId === song.videoId);
+    let idx = index ?? queue.findIndex((q) => q.trackId === song.trackId);
     if (!Number.isFinite(idx) || idx < 0) idx = 0;
     Player.index = idx;
   } else { Player.queue = [{ ...song, _user: false }]; Player.index = 0; }
@@ -481,14 +609,14 @@ function playSong(song, queue = null, index = null) {
 function userQueueCount() {
   return Player.queue.filter((q, i) => i > Player.index && q._user).length;
 }
-function alreadyQueued(videoId) {
-  return Player.queue.some((q, i) => i > Player.index && q._user && q.videoId === videoId);
+function alreadyQueued(trackId) {
+  return Player.queue.some((q, i) => i > Player.index && q._user && q.trackId === trackId);
 }
 function queueSong(song, playNext = false) {
-  if (!song || !song.videoId) return;
+  if (!song || !song.trackId) return;
   const s = { ...normalizeSong(song), _user: true };
   if (!Player.current) { playSong(s); return; }
-  if (!playNext && alreadyQueued(song.videoId)) {
+  if (!playNext && alreadyQueued(song.trackId)) {
     toast(tr('toast.alreadyQueue'));
     renderQueue();
     return;
@@ -516,14 +644,14 @@ function clearUserQueue() {
   toast(tr('toast.queueCleared'));
 }
 function slimSong(s) {
-  if (!s || !s.videoId) return null;
+  if (!s || !s.trackId) return null;
   return {
-    videoId: s.videoId,
+    trackId: s.trackId,
     title: s.title || '',
     artist: displayArtist(s.artist || s.subtitle || ''),
     thumbnail: s.thumbnail || '',
     duration: s.duration || '',
-    playlistId: s.playlistId || '',
+    listId: s.listId || '',
     _user: !!s._user,
     _radio: !!s._radio,
   };
@@ -558,15 +686,10 @@ function restoreQueue() {
   const s = Player.current;
   if (!s) return false;
   const loadId = ++Player.loadId;
-  const tryCue = () => {
-    if (loadId !== Player.loadId) return;
-    if (!Player.ready) return setTimeout(tryCue, 300);
-    try {
-      Player.yt.cueVideoById({ videoId: s.videoId, suggestedQuality: suggestedQuality() });
-      PB.rate(Player.speed);
-    } catch {}
-  };
-  tryCue();
+  if (loadId === Player.loadId) {
+    PB.cue(s.trackId);
+    PB.rate(Player.speed);
+  }
   setMediaMetadata(s);
   // 'paused' rather than left at 'none'. Without it the system decides there
   // is nothing to control, and the picture in picture window opens with no
@@ -579,7 +702,7 @@ function restoreQueue() {
   $('#miniplayer').classList.remove('hidden');
   document.body.classList.add('has-player', 'paused');
   document.title = `${s.title} • AR Music`;
-  applyTint(s.videoId || s.title);
+  applyTint(s.trackId || s.title);
   const shOn = Player.shuffle;
   $('#mini-shuffle') && $('#mini-shuffle').classList.toggle('on', shOn);
   $('#np-shuffle') && $('#np-shuffle').classList.toggle('on', shOn);
@@ -612,18 +735,10 @@ function startCurrent() {
   if (!s) return;
   const loadId = ++Player.loadId;
 
-  const tryPlay = () => {
-    if (loadId !== Player.loadId) return;
-    if (!Player.ready) return setTimeout(tryPlay, 300);
-    Player.yt.loadVideoById({ videoId: s.videoId, suggestedQuality: suggestedQuality() });
-    PB.rate(Player.speed);
+  if (loadId === Player.loadId) {
     Player.wantPlaying = true;
-    PB.play();
-    applyPlaybackQuality();
-    setTimeout(applyPlaybackQuality, 400);
-    setTimeout(applyPlaybackQuality, 1600);
-  };
-  tryPlay();
+    PB.load(s.trackId, { autoplay: true });
+  }
   Library.pushHistory(s);
   maybeExtendQueue();
   Player.lyrics = { synced: null, plain: null, source: null, lines: [] };
@@ -637,13 +752,13 @@ function startCurrent() {
   $('#miniplayer').classList.remove('hidden');
   document.body.classList.add('has-player');
   document.title = `${s.title} • AR Music`;
-  applyTint(s.videoId || s.title);
+  applyTint(s.trackId || s.title);
   setMediaMetadata(s);
   loadLyrics(s);
-  loadSponsorBlock(s.videoId);
+  loadSkips(s.trackId);
   // refresh related tab lazily
-  Player.relatedBrowseId = null; // stale — belongs to the previous song until fetchQueue returns
-  Player.lyricsBrowseId = null;
+  Player.relatedId = null; // stale — belongs to the previous song until fetchQueue returns
+  Player.lyricsId = null;
   $('#related-list').innerHTML = `<div class="loading-note">${tr('misc.loading')}</div>`;
   Player._relatedLoaded = false;
   // if the Related tab is currently open, reload it right away for the new song
@@ -655,16 +770,14 @@ function startCurrent() {
 
 /* ---------- scoring the radio candidates ----------
  *
- * The order YouTube sends already carries a sense of what is similar, so what
- * happens here nudges rather than sorting from scratch. Every weighting based
- * on listening history is worked out on the device; nothing about what someone
- * listens to is sent to the server.
+ * The order the catalogue sends already carries a sense of what is similar,
+ * so that order is the base score and the adjustments below nudge it.
  */
 function artistKeys(s) {
-  const ids = ((s && s.artists) || []).map((a) => a && a.browseId).filter(Boolean);
+  const ids = ((s && s.artists) || []).map((a) => a && a.pageId).filter(Boolean);
   const names = String((s && s.artist) || '')
     .split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
-  if (s && s.artistBrowseId) ids.push(s.artistBrowseId);
+  if (s && s.artistId) ids.push(s.artistId);
   return { ids: new Set(ids), names: new Set(names) };
 }
 
@@ -714,20 +827,20 @@ function rankRadio(list, seed, existing) {
   const s = artistKeys(seed);
   const fav = artistPlayCounts();
   let recent = new Set();
-  try { recent = new Set(Library.history.slice(0, 30).map((h) => h.videoId)); } catch {}
-  const seen = new Set((existing || []).map((q) => q && q.videoId).filter(Boolean));
+  try { recent = new Set(Library.history.slice(0, 30).map((h) => h.trackId)); } catch {}
+  const seen = new Set((existing || []).map((q) => q && q.trackId).filter(Boolean));
   const perArtist = {};
 
   const dinilai = (list || [])
-    .filter((c) => c && c.videoId && !seen.has(c.videoId))
+    .filter((c) => c && c.trackId && !seen.has(c.trackId))
     .map((c, i) => {
       const k = artistKeys(c);
       const first = [...k.names][0] || '';
-      let score = 100 - i; // dasarnya tetap urutan YouTube
+      let score = 100 - i; // dasarnya tetap urutan dari katalog
       if ([...k.ids].some((id) => s.ids.has(id))) score += 120;
       else if ([...k.names].some((n) => s.names.has(n))) score += 90;
       if (first && fav[first]) score += Math.min(30, fav[first] * 3);
-      if (recent.has(c.videoId)) score -= 150;
+      if (recent.has(c.trackId)) score -= 150;
       const n = (perArtist[first] = (perArtist[first] || 0) + 1);
       if (n > 4) score -= 60;
       return { c, score, i };
@@ -745,11 +858,11 @@ function rankRadio(list, seed, existing) {
  * through its batch, and an album or playlist that has run out of songs while
  * playback should carry on with something in the same vein. */
 async function extendQueue(seed) {
-  if (!seed || !seed.videoId || Player._extending) return;
+  if (!seed || !seed.trackId || Player._extending) return;
   Player._extending = true;
   const loadId = Player.loadId;
   try {
-    const d = await api(`/api/next?videoId=${encodeURIComponent(seed.videoId)}`);
+    const d = await api(`/api/next?trackId=${encodeURIComponent(seed.trackId)}`);
     if (loadId !== Player.loadId) return; // pendengar sudah pindah lagu sendiri
     const tambahan = rankRadio(d.queue, seed, Player.queue).map((s) => ({ ...s, _radio: true }));
     if (!tambahan.length) return;
@@ -780,22 +893,22 @@ function maybeExtendQueue() {
 }
 
 async function fetchQueue(song) {
-  const vid = song && song.videoId;
+  const vid = song && song.trackId;
   const loadId = Player.loadId;
   Player._queueFetching = true;
   try {
-    // The song's playlistId is deliberately left out. A song that came from
+    // The song's listId is deliberately left out. A song that came from
     // an album, a playlist or a chart carries the id of where it came from,
     // and sending that makes the server use that playlist instead of the
     // radio. What fills the queue is then the rest of that playlist, which on
-    // a mixed one drifts a long way from the genre. Without a playlistId the
-    // server falls back to RDAMVM<videoId>, the YouTube Music radio for that
+    // a mixed one drifts a long way from the genre. Without a listId the
+    // without a playlist the server builds a radio around this song,
     // song. Playing an album on purpose does not come through here.
-    const d = await api(`/api/next?videoId=${encodeURIComponent(song.videoId)}`);
+    const d = await api(`/api/next?trackId=${encodeURIComponent(song.trackId)}`);
     if (Player.cued || loadId !== Player.loadId) return;
-    if (!vid || !Player.current || Player.current.videoId !== vid) return;
-    Player.lyricsBrowseId = d.lyricsBrowseId;
-    Player.relatedBrowseId = d.relatedBrowseId;
+    if (!vid || !Player.current || Player.current.trackId !== vid) return;
+    Player.lyricsId = d.lyricsId;
+    Player.relatedId = d.relatedId;
     if (d.queue && d.queue.length > 1) {
       const current = Player.current;
       const adaDaftar = Player.queue.some((q, i) => i !== Player.index && isChosen(q));
@@ -869,7 +982,7 @@ function lastChosen() {
    from the same list with radio hanging off the end. Keyed on the chosen songs
    alone: radio appending itself must not reshuffle a deck already in play. */
 function chosenSignature() {
-  const ids = Player.queue.filter(isChosen).map((q) => q.videoId);
+  const ids = Player.queue.filter(isChosen).map((q) => q.trackId);
   return ids.length + ':' + (ids[0] || '') + ':' + (ids[ids.length - 1] || '');
 }
 
@@ -954,10 +1067,10 @@ function prevTrack() {
   if (Player.cued) { togglePlay(); return; }
   if (PB.time() > 4) { PB.seek(0); return; }
   if (Player.index > 0) { Player.index--; startCurrent(); }
-  else if (Player.yt) PB.seek(0);
+  else if (Player.el) PB.seek(0);
 }
 function seekRelative(delta) {
-  if (!Player.yt || !Player.ready) return;
+  if (!Player.el || !Player.ready) return;
   try {
     const cur = PB.time() || 0;
     const dur = PB.duration() || 0;
@@ -970,7 +1083,7 @@ function seekRelative(delta) {
 let _lastNativeState = null;
 function notifyNativePlayback(playing) {
   const s = Player.current || {};
-  const key = `${playing}|${s.videoId || ''}`;
+  const key = `${playing}|${s.trackId || ''}`;
   if (_lastNativeState === key) return;
   _lastNativeState = key;
   try {
@@ -979,7 +1092,7 @@ function notifyNativePlayback(playing) {
       let dur = 0;
       try { dur = Math.round(PB.duration()); } catch {}
       br.setPlaying(!!playing, String(s.title || ''), String(s.artist || ''),
-        String(s.thumbnail || ''), dur);
+        absImage(s.thumbnail), dur);
     }
   } catch {}
 }
@@ -997,7 +1110,7 @@ window.ARMusicCloseOverlay = function () {
    getPlayerState has not reported PLAYING yet, and togglePlay would read that
    as "stopped" and start it instead. */
 function commandPause() {
-  if (Player.cued || !Player.yt || !Player.ready) return;
+  if (Player.cued || !Player.el || !Player.ready) return;
   Player.wantPlaying = false;
   try { PB.pause(); } catch {}
 }
@@ -1023,7 +1136,7 @@ function setMediaMetadata(s) {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: s.title || '', artist: displayArtist(s.artist || s.subtitle || ''),
-      artwork: s.thumbnail ? [{ src: s.thumbnail, sizes: '544x544' }] : [],
+      artwork: safeCover(s.thumbnail) ? [{ src: absImage(s.thumbnail), sizes: '544x544' }] : [],
     });
   } catch {}
 }
@@ -1051,37 +1164,17 @@ function setupMediaSession() {
   on('seekbackward', (d) => seekRelative(-(d && d.seekOffset ? d.seekOffset : 10)));
   on('seekforward', (d) => seekRelative(d && d.seekOffset ? d.seekOffset : 10));
   on('seekto', (d) => {
-    if (!Player.yt || !d || d.fastSeek === true) return;
+    if (!Player.el || !d || d.fastSeek === true) return;
     try { PB.seek(d.seekTime, true); } catch {}
   });
 }
 function isPlayingNow() {
-  if (Player.cued || !Player.yt || !Player.ready) return false;
-  try { return PB.state() === YT.PlayerState.PLAYING; } catch { return false; }
+  if (Player.cued || !Player.el || !Player.ready) return false;
+  try { return PB.state() === PS.PLAYING; } catch { return false; }
 }
 
-/* ---------- taking the notification back ----------
- *
- * The notification was showing up with the right title and artwork, but its
- * buttons never reached this code. The giveaway was the icon on it: a pause
- * icon, meaning the system thought something was running, while we had already
- * set the state to paused. So what the system was reading was not this page's
- * media session.
- *
- * The reason is that one page can hold more than one media session. This page
- * has its own, and the YouTube frame inside it sets up another. Chrome passes
- * the buttons to only one of them, whichever registered its handlers and
- * metadata most recently. Ours go on once when the page loads, long before
- * anything is played, while the YouTube frame sets its own up exactly when
- * playback starts. So ours is always the older one, and the buttons went to
- * the player inside the frame, which is the very thing that is not allowed to
- * make a sound.
- *
- * So the handlers and metadata are set again at the two moments that decide
- * it: shortly after a song is really running, and right as the tab is left.
- * The second is the important one, because it is the last chance to be the
- * most recent before anyone reaches for the notification.
- */
+/* Handlers and metadata are set again shortly after a song starts and right
+   as the tab is left, so the system media controls always reach this page. */
 function assertMediaSession() {
   if (!('mediaSession' in navigator)) return;
   setupMediaSession();
@@ -1091,45 +1184,7 @@ function assertMediaSession() {
   } catch {}
 }
 
-/* ---------- holding a media session, tried and taken out again ----------
- *
- * This existed once and was removed on purpose. The note stays so nobody runs
- * the same experiment again, myself included.
- *
- * It made sense at the time. On a phone in normal mode nothing appeared in the
- * notification bar at all, and the reason was plain: Chrome only raises a media
- * notification for media actually running in this page, while the only thing
- * making a sound sits inside the YouTube frame, which belongs to another
- * origin. Once that frame goes quiet there is nothing left to attach a
- * notification to. MediaSession metadata does not help, because metadata only
- * fills a notification that already exists rather than bringing one into being.
- *
- * So this page briefly held media of its own, thirty seconds of silence played
- * on a loop, so the notification would be raised in this page's name and
- * survive the YouTube frame stopping.
- *
- * That part worked, and the result is exactly what closed the question. The
- * notification appeared with the right title, artist and artwork, and once the
- * handlers were set again (see assertMediaSession) its buttons did reach this
- * code: pressing next really did change the song, visible in the title on the
- * notification changing with it. But there was still no sound. That is the
- * decisive test, because a press on a notification carries the user's own
- * interaction, which no automatic attempt has. Even a request to play with
- * that behind it was refused.
- *
- * The conclusion: the YouTube frame refuses to make a sound while its page is
- * left, and that refusal cannot be argued with from the page's side.
- *
- * What was left behind was worse than silence. The notification lit up as if
- * music were playing when there was none, pressing pause changed nothing on it
- * because what counted as running was that loop of silence, and pressing next
- * quietly rearranged someone's queue with nothing to hear. A notification that
- * lies is more misleading than no notification at all, so it came out.
- *
- * The one piece kept from the experiment is assertMediaSession, because on
- * devices where the notification does appear on its own, setting the handlers
- * again is still what sends the buttons here.
- */
+
 
 /* Keep the OS notification and lock screen honest about what is playing. */
 function syncMediaSession(playing) {
@@ -1161,14 +1216,14 @@ function togglePlay() {
     if (!adaSambungan) fetchQueue(s);
     return;
   }
-  if (!Player.yt || !Player.ready) return;
+  if (!Player.el || !Player.ready) return;
   const st = PB.state();
-  if (st === YT.PlayerState.PLAYING) { Player.wantPlaying = false; PB.pause(); }
+  if (st === PS.PLAYING) { Player.wantPlaying = false; PB.pause(); }
   else { Player.wantPlaying = true; PB.play(); }
 }
 function playPendingSong() {
   const s = Player.pending;
-  if (!s || !s.videoId) return togglePlay();
+  if (!s || !s.trackId) return togglePlay();
   Player.pending = null;
   const userUpcoming = Player.queue.filter((q, i) => i > Player.index && q._user);
   Player.queue = [{ ...normalizeSong(s), _user: false }, ...userUpcoming];
@@ -1187,14 +1242,14 @@ function toggleNowPlayingPlay() {
 /* progress loop */
 let _lastTick = null;
 function syncPlaybackUI() {
-  if (!Player.yt || !Player.ready || !Player.current || !Player.yt.getDuration) return;
+  if (!Player.el || !Player.ready || !Player.current || !Player.el) return;
   const cur = PB.time() || 0;
   // local scrobble: accumulate listen time while playing
-  const playing = PB.state() === YT.PlayerState.PLAYING;
+  const playing = PB.state() === PS.PLAYING;
   const now = Date.now();
-  if (playing && _lastTick) Library.addListenTime(Player.current.videoId, Math.min(2, (now - _lastTick) / 1000));
+  if (playing && _lastTick) Library.addListenTime(Player.current.trackId, Math.min(2, (now - _lastTick) / 1000));
   _lastTick = now;
-  // SponsorBlock auto-skip
+  // skip the parts that are not music
   if (playing && Player.sbEnabled && Player.sbSegments.length) {
     const seg = Player.sbSegments.find((g) => cur >= g.start && cur < g.end - 0.3);
     if (seg) {
@@ -1222,7 +1277,7 @@ function syncPlaybackUI() {
 setInterval(syncPlaybackUI, 400);
 
 function renderPlayButtons() {
-  const actuallyPlaying = Player.ready && PB.state() === YT.PlayerState.PLAYING;
+  const actuallyPlaying = Player.ready && PB.state() === PS.PLAYING;
   const preview = isPreviewing();
   $('#mini-play').innerHTML = icon(actuallyPlaying ? 'i-pause' : 'i-play');
   $('#np-play').innerHTML = icon(!preview && actuallyPlaying ? 'i-pause' : 'i-play');
@@ -1233,11 +1288,11 @@ function renderPlayButtons() {
   syncFloatWidget();
 }
 
-/* ================= SponsorBlock / votes / speed / video ================= */
-async function loadSponsorBlock(videoId) {
+/* ================= skips / speed ================= */
+async function loadSkips(trackId) {
   Player.sbSegments = [];
   try {
-    const d = await api(`/api/sponsorblock?videoId=${encodeURIComponent(videoId)}`);
+    const d = await api(`/api/skips?trackId=${encodeURIComponent(trackId)}`);
     Player.sbSegments = d.segments || [];
     if (Player.sbSegments.length && Player.sbEnabled) toast(tr('toast.sbSegments', { n: Player.sbSegments.length }));
   } catch {}
@@ -1245,7 +1300,7 @@ async function loadSponsorBlock(videoId) {
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 function setSpeed(r) {
   Player.speed = r;
-  if (Player.yt && Player.ready) PB.rate(Player.speed);
+  if (Player.el && Player.ready) PB.rate(Player.speed);
   $('#np-speed span').textContent = Player.speed + '×';
   persistQueue();
   toast(tr('toast.speed', { n: Player.speed }));
@@ -1293,7 +1348,7 @@ async function loadLyrics(song, { silent = false } = {}) {
     $('#lyrics-container').innerHTML = `<div class="lyrics-empty">${tr('lyrics.looking')}</div>`;
   }
   try {
-    const d = await api(`/api/lyrics?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&duration=${durationSec}&browseId=${encodeURIComponent(Player.lyricsBrowseId || '')}`);
+    const d = await api(`/api/lyrics?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&duration=${durationSec}&pageId=${encodeURIComponent(Player.lyricsId || '')}`);
     if (myReq !== lyricsReqId) return; // a newer request superseded us
     // never downgrade: keep existing synced lyrics if the retry found less
     if (Player.lyrics.synced && !d.synced) return;
@@ -1308,7 +1363,7 @@ async function loadLyrics(song, { silent = false } = {}) {
    or when the first attempt found nothing */
 function maybeRetryLyrics() {
   const s = Player.current;
-  if (!s || !Player.yt || !Player.ready || !Player.yt.getDuration) return;
+  if (!s || !Player.el || !Player.ready || !Player.el) return;
   const dur = Math.round(PB.duration() || 0);
   if (!dur) return;
   const noLyrics = !Player.lyrics.synced && !Player.lyrics.plain;
@@ -1328,16 +1383,15 @@ function parseLRC(lrc) {
   }
   return lines.sort((a, b) => a.t - b.t);
 }
-/* LRCLIB times a specific release. When YouTube Music serves a different
-   master, remix or upload, every line lands early or late by a fixed amount.
-   A per-song shift lets that be nudged; effective cue = line.t + shift. */
+/* LRCLIB times a specific release. When the catalogue serves a different
+   master, remix or edit, the lines drift; the nudge buttons correct that. */
 function lyricShift() {
-  const id = Player.current && Player.current.videoId;
+  const id = Player.current && Player.current.trackId;
   if (!id) return 0;
   return Number(store.get('lyrshift', {})[id]) || 0;
 }
 function bumpLyricShift(delta) {
-  const id = Player.current && Player.current.videoId;
+  const id = Player.current && Player.current.trackId;
   if (!id) return;
   const m = store.get('lyrshift', {});
   const next = Math.max(-10, Math.min(10, (Number(m[id]) || 0) + delta));
@@ -1436,7 +1490,7 @@ function updateLyricHighlight(cur) {
 }
 
 /* The artist line acts as a link only when there is somewhere to go: the
-   artist's browseId, or at least a name to search for. The role is set along
+   artist's pageId, or at least a name to search for. The role is set along
    with it, so anything that looks clickable can be reached with a keyboard and
    not only with a mouse. */
 function setArtistLink(el, on) {
@@ -1456,7 +1510,7 @@ function renderNowPlaying() {
   const mini = Player.current;
   const np = Player.pending || Player.current;
   if (mini) {
-    $('#mini-art').src = mini.thumbnail || '';
+    $('#mini-art').src = safeCover(mini.thumbnail) || COVER_PH;
     const mt = $('#mini-title');
     const ma = $('#mini-artist');
     const title = displayTitle(mini.title) || mini.title || '';
@@ -1465,22 +1519,22 @@ function renderNowPlaying() {
     const artist = displayArtist(mini.artist || mini.subtitle || '');
     ma.textContent = artist;
     ma.title = artist;
-    setArtistLink(ma, !!(songArtistBrowseId(mini) || artist.trim()));
+    setArtistLink(ma, !!(songArtistId(mini) || artist.trim()));
   }
   if (!np) return;
   $('#np-art').src = safeCover(np.thumbnail) || COVER_PH;
   $('#np-title').textContent = np.title;
   const artEl = $('#np-artist');
   artEl.textContent = displayArtist(np.artist || np.subtitle || '');
-  setArtistLink(artEl, !!(songArtistBrowseId(np) || (np.artist || '').trim()));
-  $('#np-bg').style.backgroundImage = np.thumbnail ? `url("${np.thumbnail}")` : 'none';
+  setArtistLink(artEl, !!(songArtistId(np) || (np.artist || '').trim()));
+  $('#np-bg').style.backgroundImage = safeCover(np.thumbnail) ? `url("${safeCover(np.thumbnail)}")` : 'none';
   syncFloatWidget();
 }
 function updateLikeButtons() {
   const mini = Player.current;
   const np = Player.pending || Player.current;
-  const miniLiked = mini && Library.isFav(mini.videoId);
-  const npLiked = np && Library.isFav(np.videoId);
+  const miniLiked = mini && Library.isFav(mini.trackId);
+  const npLiked = np && Library.isFav(np.trackId);
   $('#mini-like').innerHTML = icon(miniLiked ? 'i-heart-f' : 'i-heart-o');
   $('#mini-like').classList.toggle('liked', !!miniLiked);
   $('#np-like').innerHTML = icon(npLiked ? 'i-heart-f' : 'i-heart-o') + `<span>${npLiked ? 'Favorited' : 'Favorite'}</span>`;
@@ -1550,7 +1604,7 @@ function renderQueue() {
       if (Number.isFinite(idx) && idx >= 0) { Player.index = idx; startCurrent(); }
     });
     const favBtn = $('.btn-fav', row);
-    if (favBtn) favBtn.addEventListener('click', (e) => { e.stopPropagation(); Library.toggleFav(songFromItem(it)); favBtn.innerHTML = icon(Library.isFav(it.videoId) ? 'i-heart-f' : 'i-heart-o'); });
+    if (favBtn) favBtn.addEventListener('click', (e) => { e.stopPropagation(); Library.toggleFav(songFromItem(it)); favBtn.innerHTML = icon(Library.isFav(it.trackId) ? 'i-heart-f' : 'i-heart-o'); });
     const addBtn = $('.btn-addpl', row);
     if (addBtn) addBtn.addEventListener('click', (e) => { e.stopPropagation(); openAddToPlaylist(songFromItem(it)); });
     const qBtn = $('.btn-queue', row);
@@ -1605,12 +1659,12 @@ async function loadRelated(force = false) {
   Player._relatedLoaded = true;
   el.innerHTML = `<div class="loading-note">${tr('misc.loading')}</div>`;
 
-  const vid = song.videoId;
-  const sameSong = () => Player.current && Player.current.videoId === vid;
+  const vid = song.trackId;
+  const sameSong = () => Player.current && Player.current.trackId === vid;
 
-  for (let i = 0; i < 16 && !Player.relatedBrowseId && sameSong(); i++) {
+  for (let i = 0; i < 16 && !Player.relatedId && sameSong(); i++) {
     await new Promise((r) => setTimeout(r, 300));
-    if (!Player._queueFetching && i >= 3 && !Player.relatedBrowseId) break;
+    if (!Player._queueFetching && i >= 3 && !Player.relatedId) break;
   }
   if (!sameSong()) { Player._relatedLoaded = false; return; }
 
@@ -1629,9 +1683,9 @@ async function loadRelated(force = false) {
     return true;
   };
 
-  if (Player.relatedBrowseId) {
+  if (Player.relatedId) {
     try {
-      const d = await api(`/api/related?browseId=${encodeURIComponent(Player.relatedBrowseId)}`);
+      const d = await api(`/api/related?pageId=${encodeURIComponent(Player.relatedId)}`);
       if (d.sections && d.sections.length) {
         paint(relatedSectionsHTML(d.sections));
         return;
@@ -1641,12 +1695,12 @@ async function loadRelated(force = false) {
   if (!sameSong()) { Player._relatedLoaded = false; return; }
 
   try {
-    const d = await api(`/api/next?videoId=${encodeURIComponent(vid)}`);
+    const d = await api(`/api/next?trackId=${encodeURIComponent(vid)}`);
     if (!sameSong()) { Player._relatedLoaded = false; return; }
-    if (d.relatedBrowseId) Player.relatedBrowseId = d.relatedBrowseId;
-    if (Player.relatedBrowseId) {
+    if (d.relatedId) Player.relatedId = d.relatedId;
+    if (Player.relatedId) {
       try {
-        const rel = await api(`/api/related?browseId=${encodeURIComponent(Player.relatedBrowseId)}`);
+        const rel = await api(`/api/related?pageId=${encodeURIComponent(Player.relatedId)}`);
         if (rel.sections && rel.sections.length) {
           paint(relatedSectionsHTML(rel.sections));
           return;
@@ -1654,9 +1708,9 @@ async function loadRelated(force = false) {
       } catch {}
     }
     const items = (d.queue || [])
-      .filter((q) => q.videoId && q.videoId !== vid)
+      .filter((q) => q.trackId && q.trackId !== vid)
       .slice(0, 25)
-      .map((q) => ({ type: 'song', videoId: q.videoId, title: q.title, subtitle: q.artist, thumbnail: q.thumbnail, duration: q.duration, artists: q.artists }));
+      .map((q) => ({ type: 'song', trackId: q.trackId, title: q.title, subtitle: q.artist, thumbnail: q.thumbnail, duration: q.duration, artists: q.artists }));
     if (items.length) {
       paint(shelfHTML({ title: 'Similar songs', items, list: true }));
       return;
@@ -1665,22 +1719,25 @@ async function loadRelated(force = false) {
   if (sameSong()) renderFail();
 }
 
-/* ================= download (via converter service, direct save) ================= */
+/* ================= download ================= */
+/* The file comes from this origin, as the original audio stream saved as an
+ * attachment. No converter, no wait for a job to finish, and no address of
+ * anyone else's server handed to the page. */
 const activeDownloads = new Set();
 function downloadFilename(song) {
   const t = displayTitle(song && song.title) || 'track';
   const a = String((song && song.artist) || '').split(',')[0].trim();
   const raw = (a ? `${a} - ${t}` : t).replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return `${raw.slice(0, 80) || 'track'}.mp3`;
+  return raw.slice(0, 80) || 'track';
 }
 function clickDownload(href, name) {
   /* Inside the Android app, hand it to the Android side. A WebView downloads
      nothing by itself, and without this route the download button really does
-     nothing at all. The filename goes along with it so what gets saved is named
-     after the song rather than whatever the converter called it. */
+     nothing at all. The address is made absolute here because the Android
+     downloader cannot resolve a path on its own. */
   try {
     if (window.ARMusicNative && typeof ARMusicNative.download === 'function') {
-      ARMusicNative.download(String(href), String(name || ''));
+      ARMusicNative.download(new URL(href, location.href).toString(), String(name || ''));
       return;
     }
   } catch {}
@@ -1688,54 +1745,26 @@ function clickDownload(href, name) {
   const aEl = document.createElement('a');
   aEl.href = href;
   aEl.download = name || '';
-  /* Deliberately without target _blank. Opening a new window asks for
-     permission that has already run out: the conversion takes a good fifteen
-     seconds, and after a wait like that this click no longer counts as coming
-     from a person's touch, so a phone browser blocks it as a popup. That is
-     why downloads on a phone stopped with no word once the conversion
-     finished. The file itself is served as an attachment, so this page does
-     not go wandering off anywhere. */
   aEl.rel = 'noopener noreferrer';
   document.body.appendChild(aEl);
   aEl.click();
   aEl.remove();
 }
 async function downloadSong(song) {
-  if (!song || !song.videoId) return;
-  if (activeDownloads.has(song.videoId)) { toast(tr('toast.alreadyDownloading')); return; }
-  activeDownloads.add(song.videoId);
-  toast(tr('toast.preparing', { title: song.title }));
+  if (!song || !song.trackId) return;
+  if (activeDownloads.has(song.trackId)) { toast(tr('toast.alreadyDownloading')); return; }
+  activeDownloads.add(song.trackId);
   try {
-    const st = await api(`/api/download-start?videoId=${encodeURIComponent(song.videoId)}`);
-    if (!st.progressUrl) throw new Error('no progress url');
-    let url = null;
-    let lastProg = -1;
-    for (let i = 0; i < 60; i++) {
-      if (i) await new Promise((r) => setTimeout(r, 2500));
-      try {
-        const p = await api(`/api/download-progress?progressUrl=${encodeURIComponent(st.progressUrl)}`);
-        if (p.done && p.url) { url = p.url; break; }
-        const raw = Number(p.progress) || 0;
-        const pct = Math.min(99, raw > 100 ? Math.round(raw / 10) : Math.round(raw));
-        if (pct !== lastProg) {
-          lastProg = pct;
-          toast(tr('toast.converting', { title: song.title, pct }));
-        }
-      } catch {}
-    }
-    if (!url) throw new Error('timeout');
-    toast(tr('toast.downloading', { title: song.title }));
     const name = downloadFilename(song);
-    /* The file used to be fetched whole first so it could be saved under the
-       right name. The converter's server refuses cross origin requests, so that
-       step never once succeeded and always fell through to the path below.
-       Straight there now, without a request already known to fail. */
-    clickDownload(url, name);
+    // Always AAC in MP4 for a saved file: it opens everywhere, and its
+    // extension is known before the file arrives.
+    const href = `/api/download/${encodeURIComponent(song.trackId)}?name=${encodeURIComponent(name)}`;
+    clickDownload(href, name);
     toast(tr('toast.downloadStarted'));
-  } catch (e) {
+  } catch {
     toast(tr('toast.downloadFailed'));
   } finally {
-    activeDownloads.delete(song.videoId);
+    setTimeout(() => activeDownloads.delete(song.trackId), 3000);
   }
 }
 
@@ -1761,18 +1790,8 @@ function displayTitle(t) {
   return cleaned || raw;
 }
 /* The line under a song title, cut back to the name of whoever made it.
- *
- * When YouTube Music gives no separate list of artists, all there is to go on
- * is its own subtitle line, which reads "Song • Yeat • 2:41". Taken whole it
- * put the word for the kind of thing and the running time into the artist,
- * so a row showed "Lagu • Yeat • 2.41" with the length column left empty
- * beside it — and the word for the kind of thing came in whatever language
- * YouTube was asked in, which is how Indonesian turned up in the English app.
- *
- * Both words are dropped here rather than at the source alone, because songs
- * saved before this already carry the long version. Nothing in storage is
- * rewritten: what changes is what gets drawn.
- */
+ * When no separate list of artists is given, the subtitle reads like
+ * "Song • Artist • 2:41"; the kind word and the length are dropped. */
 const KIND_WORDS = /^(lagu|song|video|album|artis|artist|penyanyi|single|ep|playlist|daftar putar|episode|podcast)$/i;
 const DURATION_LIKE = /^\d{1,2}([:.]\d{2}){1,2}$/;
 
@@ -1805,31 +1824,49 @@ function normalizeSong(s) {
 }
 function songFromItem(it) {
   const artists = it.artists || [];
-  const artistBrowseId = it.artistBrowseId || (artists[0] && artists[0].browseId) || '';
+  const artistId = it.artistId || (artists[0] && artists[0].pageId) || '';
   const fromArr = artists.map((a) => a.name).filter(Boolean).join(', ');
   const subtitle = looksLikePlays(it.subtitle) ? '' : (it.subtitle || '');
   const artist = fromArr || it.artist || displayArtist(subtitle);
   return normalizeSong({
-    videoId: it.videoId, title: it.title,
+    trackId: it.trackId, title: it.title,
     artist,
-    artistBrowseId,
+    artistId,
     thumbnail: it.thumbnail,
     duration: normalizeDuration(it.duration) || durationFromSubtitle(subtitle),
-    playlistId: it.playlistId,
+    listId: it.listId,
   });
 }
 const COVER_PH = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" fill="#242424"/><path fill="#6a6a6a" d="M32 24v26.6a7 7 0 1 0 4 6.4V32h14V24H32z"/></svg>'
 );
+/* Artwork is only ever drawn from this origin. The server hands out
+   /api/img/ paths; anything else (an old address still sitting in someone's
+   saved library from before) is left blank until migrateStoredData below
+   has swapped it. */
+function sameOriginImage(src) {
+  const u = String(src || '').trim();
+  if (!u) return '';
+  if (u.startsWith('/api/img/') || u.startsWith('data:')) return u;
+  return '';
+}
+/* Absolute form for the two consumers that live outside the page: the
+   system media notification and the Android shell. Still this origin. */
+function absImage(src) {
+  const u = safeCover(src);
+  if (!u || u.startsWith('data:')) return '';
+  try { return new URL(u, location.href).toString(); } catch { return ''; }
+}
 function safeCover(src) {
   const u = String(src || '').trim();
   if (!u || u === 'undefined' || u === 'null' || u === 'about:blank') return '';
-  return u;
+  return sameOriginImage(u);
 }
 function coverHTML(src, kind = '') {
   const u = safeCover(src);
   if (!u) return `<div class="art-ph${kind ? ' art-ph-' + kind : ''}">${icon('i-note')}</div>`;
-  return `<img loading="lazy" src="${esc(u)}" alt="">`;
+  // low priority, so a page full of covers never competes with the audio
+  return `<img loading="lazy" decoding="async" fetchpriority="low" src="${esc(u)}" alt="">`;
 }
 function cardHTML(it) {
   const cls = it.type === 'artist' ? 'card artist' : 'card';
@@ -1855,7 +1892,7 @@ function trackRowHTML(it, playing = false, extraBtn = '') {
       const d = it.duration || durationFromSubtitle(it.artist || it.subtitle);
       return d ? esc(d) : '<span class="tdur-none">–</span>';
     })()}</span>
-    <button class="tbtn btn-fav" title="${tr('player.favorite')}">${icon(Library.isFav(it.videoId) ? 'i-heart-f' : 'i-heart-o')}</button>
+    <button class="tbtn btn-fav" title="${tr('player.favorite')}">${icon(Library.isFav(it.trackId) ? 'i-heart-f' : 'i-heart-o')}</button>
     <button class="tbtn btn-queue" title="${tr('player.addToQueue')}">${icon('i-queue')}</button>
     <button class="tbtn btn-addpl" title="${tr('modal.addToPlaylist')}">${icon('i-plus')}</button>
     <button class="tbtn btn-dl" title="${tr('player.download')}">${icon('i-download')}</button>
@@ -1903,7 +1940,7 @@ function likedCardHTML() {
 function shelfHTML(sec) {
   if (sec.list) {
     return `<div class="shelf"><div class="shelf-title">${esc(sec.title)}</div>
-      <div class="track-list">${sec.items.map((i) => (i.videoId ? trackRowHTML(i) : cardHTML(i))).join('')}</div></div>`;
+      <div class="track-list">${sec.items.map((i) => (i.trackId ? trackRowHTML(i) : cardHTML(i))).join('')}</div></div>`;
   }
   return `<div class="shelf"><div class="shelf-title">${esc(sec.title)}</div>
     ${carouselHTML(sec.items.map(cardHTML).join(''))}</div>`;
@@ -1946,12 +1983,12 @@ function bindItems(root) {
     try { it = JSON.parse(el.dataset.item); } catch { return; }
     el.addEventListener('click', (e) => {
       if (e.target.closest('.tbtn')) return;
-      if (it.browseId && (it.type === 'album' || it.type === 'playlist' || it.type === 'artist')) openItem(it);
-      else if (it.videoId) openSongNowPlaying(songFromItem(it), listContext(el));
+      if (it.pageId && (it.type === 'album' || it.type === 'playlist' || it.type === 'artist')) openItem(it);
+      else if (it.trackId) openSongNowPlaying(songFromItem(it), listContext(el));
       else openItem(it);
     });
     const favBtn = $('.btn-fav', el);
-    if (favBtn) favBtn.addEventListener('click', (e) => { e.stopPropagation(); Library.toggleFav(songFromItem(it)); favBtn.innerHTML = icon(Library.isFav(it.videoId) ? 'i-heart-f' : 'i-heart-o'); });
+    if (favBtn) favBtn.addEventListener('click', (e) => { e.stopPropagation(); Library.toggleFav(songFromItem(it)); favBtn.innerHTML = icon(Library.isFav(it.trackId) ? 'i-heart-f' : 'i-heart-o'); });
     const addBtn = $('.btn-addpl', el);
     if (addBtn) addBtn.addEventListener('click', (e) => { e.stopPropagation(); openAddToPlaylist(songFromItem(it)); });
     const qBtn = $('.btn-queue', el);
@@ -1972,22 +2009,22 @@ function bindItems(root) {
 }
 function openItem(it) {
   if (!it) return;
-  const kind = it.browseType || it.type;
-  const isPage = it.browseId && (kind === 'album' || kind === 'playlist' || kind === 'artist' || kind === 'browse');
+  const kind = it.pageType || it.type;
+  const isPage = it.pageId && (kind === 'album' || kind === 'playlist' || kind === 'artist' || kind === 'browse');
   if (isPage) {
     closeNowPlaying();
-    if (kind === 'artist') return go(`#/artist/${it.browseId}`);
-    if (kind === 'album') return go(`#/album/${it.browseId}`);
-    return go(`#/playlist/${it.browseId}${it.params ? '?params=' + encodeURIComponent(it.params) : ''}`);
+    if (kind === 'artist') return go(`#/artist/${it.pageId}`);
+    if (kind === 'album') return go(`#/album/${it.pageId}`);
+    return go(`#/playlist/${it.pageId}${it.params ? '?params=' + encodeURIComponent(it.params) : ''}`);
   }
-  if (it.watchPlaylist && it.playlistId) {
+  if (it.mixList && it.listId) {
     closeNowPlaying();
-    return go(`#/playlist/${String(it.playlistId).startsWith('VL') ? it.playlistId : 'VL' + it.playlistId}`);
+    return go(`#/playlist/${it.listId}`);
   }
-  if (it.videoId) return openSongNowPlaying(songFromItem(it));
-  if (it.playlistId) {
+  if (it.trackId) return openSongNowPlaying(songFromItem(it));
+  if (it.listId) {
     closeNowPlaying();
-    return go(`#/playlist/${String(it.playlistId).startsWith('VL') ? it.playlistId : 'VL' + it.playlistId}`);
+    return go(`#/playlist/${it.listId}`);
   }
 }
 function songDurLabel(s) {
@@ -2017,7 +2054,7 @@ function listContext(row) {
   for (const el of $$('.track', list)) {
     let s = null;
     try { s = songFromItem(JSON.parse(el.dataset.item)); } catch {}
-    if (!s || !s.videoId) continue;
+    if (!s || !s.trackId) continue;
     if (el === row) index = songs.length;
     songs.push(s);
   }
@@ -2025,8 +2062,8 @@ function listContext(row) {
 }
 
 function openSongNowPlaying(song, ctx) {
-  if (!song || !song.videoId) return;
-  const same = Player.current && Player.current.videoId === song.videoId;
+  if (!song || !song.trackId) return;
+  const same = Player.current && Player.current.trackId === song.trackId;
   if (!same) {
     // picking a track always switches playback to it; showing it in Now Playing
     // while the previous song kept playing read as the click being ignored
@@ -2187,15 +2224,15 @@ async function viewHome(view) {
 /* "Mix for you" — personalized-feel shelf built from your listening history (no account needed) */
 async function loadMixForYou() {
   const hist = Library.history;
-  const seeds = [...Library.favorites, ...hist].filter((s) => s.videoId);
+  const seeds = [...Library.favorites, ...hist].filter((s) => s.trackId);
   if (!seeds.length) return;
   const slot = $('#mix-slot');
   if (!slot) return;
   try {
     const seed = seeds[Math.floor(Math.random() * Math.min(5, seeds.length))];
-    const d = await api(`/api/next?videoId=${encodeURIComponent(seed.videoId)}`);
+    const d = await api(`/api/next?trackId=${encodeURIComponent(seed.trackId)}`);
     const items = (d.queue || []).slice(1, 13).map((q) => ({
-      type: 'song', videoId: q.videoId, title: q.title, subtitle: q.artist, thumbnail: q.thumbnail,
+      type: 'song', trackId: q.trackId, title: q.title, subtitle: q.artist, thumbnail: q.thumbnail,
     }));
     if (!items.length) return;
     slot.innerHTML = shelfHTML({ title: tr('home.mixForYou', { title: seed.title }), items });
@@ -2215,13 +2252,13 @@ function removeRecentSearch(q) {
   store.set('srec', store.get('srec', []).filter((x) => x !== q));
 }
 function isSearchCard(it) {
-  const t = it.type || it.browseType;
-  return t === 'album' || t === 'playlist' || t === 'artist' || t === 'browse' || (!!it.browseId && !it.videoId);
+  const t = it.type || it.pageType;
+  return t === 'album' || t === 'playlist' || t === 'artist' || t === 'browse' || (!!it.pageId && !it.trackId);
 }
 function moodCardHTML(c, i) {
   const raw = String(c.color || '').trim();
   const color = /^#?[0-9a-fA-F]{3,8}$/.test(raw) ? (raw[0] === '#' ? raw : '#' + raw) : MOOD_COLORS[i % MOOD_COLORS.length];
-  return `<button type="button" class="mood-card" style="--mc:${esc(color)}" data-b="${esc(c.browseId)}" data-p="${esc(c.params || '')}">${esc(c.title)}</button>`;
+  return `<button type="button" class="mood-card" style="--mc:${esc(color)}" data-b="${esc(c.pageId)}" data-p="${esc(c.params || '')}">${esc(c.title)}</button>`;
 }
 function bindMoods(root) {
   $$('.mood-card', root).forEach((el) => el.addEventListener('click', () => {
@@ -2230,8 +2267,8 @@ function bindMoods(root) {
 }
 function topResultHTML(it) {
   const kind = it.type === 'artist' ? 'artist' : '';
-  const cta = it.videoId ? 'Play' : 'Open';
-  const ic = it.videoId ? 'i-play' : (it.type === 'artist' ? 'i-search' : 'i-fwd');
+  const cta = it.trackId ? 'Play' : 'Open';
+  const ic = it.trackId ? 'i-play' : (it.type === 'artist' ? 'i-search' : 'i-fwd');
   return `<button type="button" class="sr-top ${kind}" data-item='${esc(JSON.stringify(it))}'>
     ${coverHTML(it.thumbnail, 'sr')}
     <div class="sr-meta">
@@ -2267,8 +2304,8 @@ function searchResultsHTML(sections) {
   }
   const groups = { song: [], video: [], album: [], artist: [], playlist: [], browse: [] };
   leftover.forEach((it) => {
-    let t = it.type || (it.videoId ? 'song' : 'browse');
-    if (!groups[t]) t = it.videoId ? 'song' : 'browse';
+    let t = it.type || (it.trackId ? 'song' : 'browse');
+    if (!groups[t]) t = it.trackId ? 'song' : 'browse';
     groups[t].push(it);
   });
   ['song', 'video', 'album', 'artist', 'playlist', 'browse'].forEach((t) => {
@@ -2285,7 +2322,7 @@ function relatedSectionsHTML(sections) {
   return (sections || []).map((sec) => {
     const items = sec.items || [];
     if (!items.length) return '';
-    const allSongs = items.every((i) => i.videoId && !isSearchCard(i));
+    const allSongs = items.every((i) => i.trackId && !isSearchCard(i));
     if (allSongs) {
       return `<div class="shelf"><div class="shelf-title">${esc(sec.title || 'Songs')}</div>
         <div class="track-list">${items.slice(0, 16).map((i) => trackRowHTML(i)).join('')}</div></div>`;
@@ -2467,7 +2504,7 @@ async function viewCharts(view) {
   bindItems(view);
 }
 
-/* browse-tile palette (fallback when YT colors are missing) */
+/* browse-tile palette (fallback when no colour is given) */
 const MOOD_COLORS = ['#2f5fc0','#3b8fd4','#2a7f8f','#4d8df0','#35b4c4','#4a63b8','#1f6f9c','#5a7fd8','#2e8fa8','#3d6fc4','#6a8fe0','#27698c','#4478cc','#2f9ab0','#5470c8','#3aa0bc'];
 
 /* ---- Moods ---- */
@@ -2482,7 +2519,7 @@ async function viewMoods(view) {
 /* ---- Stats (local scrobble) ---- */
 function viewStats(view) {
   const st = Library.stats;
-  const rows = Object.entries(st).map(([videoId, v]) => ({ videoId, ...v }));
+  const rows = Object.entries(st).map(([trackId, v]) => ({ trackId, ...v }));
   const totalPlays = rows.reduce((a, r) => a + r.plays, 0);
   const totalMin = Math.round(rows.reduce((a, r) => a + r.secs, 0) / 60);
   // top artists
@@ -2507,7 +2544,7 @@ function viewStats(view) {
     ${topArtists.length ? `<div class="shelf"><div class="shelf-title">${tr('stats.topArtists')}</div>
       ${topArtists.map(([a, n], i) => `<div class="stat-bar-row"><span class="sb-rank">${i + 1}</span><span class="sb-name">${esc(a)}</span><div class="sb-bar"><div style="width:${(n / maxA) * 100}%"></div></div><span class="sb-n">${n}</span></div>`).join('')}</div>` : ''}
     ${topSongs.length ? `<div class="shelf"><div class="shelf-title">${tr('stats.mostPlayed')}</div>${trackHeadHTML()}<div class="track-list">
-      ${topSongs.map((r, i) => trackRowHTML({ videoId: r.videoId, title: r.title, subtitle: `${r.artist} · ${r.plays} plays · ${Math.round(r.secs / 60)} min`, thumbnail: r.thumbnail, tn: i + 1 })).join('')}</div></div>` : ''}
+      ${topSongs.map((r, i) => trackRowHTML({ trackId: r.trackId, title: r.title, subtitle: `${r.artist} · ${r.plays} plays · ${Math.round(r.secs / 60)} min`, thumbnail: r.thumbnail, tn: i + 1 })).join('')}</div></div>` : ''}
     ${!rows.length ? emptyHTML(tr('empty.stats'), tr('empty.stats.sub'), { label: tr('empty.browseHome'), go: '#/home', ic: 'i-chart' }) : ''}`;
   bindItems(view);
 }
@@ -2570,7 +2607,7 @@ function viewLibrary(view, tab) {
   $$('[data-nav]', view).forEach((el) => el.addEventListener('click', () => go(el.dataset.nav)));
 }
 
-/* ---- import a public YT Music playlist/album into local library ---- */
+/* ---- import a public playlist/album link into the local library ---- */
 function openImportForm() {
   const modal = $('#modal');
   const body = $('#modal-body');
@@ -2580,7 +2617,7 @@ function openImportForm() {
   body.innerHTML = `<form class="pl-form" id="im-form" autocomplete="off">
       <div class="pl-form-cover im" aria-hidden="true">${icon('i-download')}</div>
       <label class="pl-form-label" for="im-form-url">${tr('modal.link')}</label>
-      <input id="im-form-url" class="pl-form-input" type="text" inputmode="url" placeholder="https://music.youtube.com/playlist?list=…" />
+      <input id="im-form-url" class="pl-form-input" type="text" inputmode="url" placeholder="https://…" />
       <div class="pl-form-hint">${tr('modal.importHint')}</div>
       <div class="pl-form-actions">
         <button type="button" class="pill-btn" id="im-form-cancel">${tr('modal.cancel')}</button>
@@ -2614,10 +2651,10 @@ async function importFromLink(url) {
   toast(tr('toast.resolving'));
   const r = await api(`/api/resolve?url=${encodeURIComponent(url)}`);
   if (r.kind === 'song') {
-    let song = { videoId: r.videoId, title: 'Loading…', playlistId: r.playlistId };
+    let song = { trackId: r.trackId, title: 'Loading…', listId: r.listId };
     try {
-      const n = await api(`/api/next?videoId=${encodeURIComponent(r.videoId)}`);
-      const hit = (n.queue || []).find((q) => q.videoId === r.videoId) || (n.queue || [])[0];
+      const n = await api(`/api/next?trackId=${encodeURIComponent(r.trackId)}`);
+      const hit = (n.queue || []).find((q) => q.trackId === r.trackId) || (n.queue || [])[0];
       if (hit) song = songFromItem(hit);
     } catch {}
     openSongNowPlaying(song);
@@ -2695,7 +2732,7 @@ function restoreLibrary() {
             store.set('vol', d.settings.vol);
             $('#mini-volume').value = d.settings.vol;
             $('#np-volume').value = d.settings.vol;
-            if (Player.yt && Player.ready) PB.volume(d.settings.vol);
+            if (Player.el && Player.ready) PB.volume(d.settings.vol);
             updateVolumeIcon();
           }
           if (typeof d.settings.sb_on === 'boolean') {
@@ -2711,6 +2748,8 @@ function restoreLibrary() {
         }
         renderSidebarLibrary();
         toast(tr('toast.libraryRestored'));
+        renameStoredFields();
+        migrateStoredData();
         closeModal();
         route();
       } catch (e) { toast(tr('toast.restoreFailed', { msg: e.message || '' })); }
@@ -2733,10 +2772,10 @@ function viewLocalPlaylist(view, pid) {
     return trackRowHTML({ ...s, subtitle: s.artist, plId: pid, plIndex: i, tn: i + 1 }, false,
       `<button class="tbtn btn-qup" data-i="${i}" title="${tr('misc.moveUp')}"${up}>${icon('i-chev-up')}</button>` +
       `<button class="tbtn btn-qdn" data-i="${i}" title="${tr('misc.moveDown')}"${dn}>${icon('i-chev-down')}</button>` +
-      `<button class="tbtn btn-rm" data-vid="${esc(s.videoId)}" title="${tr('misc.remove')}">${icon('i-x')}</button>`);
+      `<button class="tbtn btn-rm" data-vid="${esc(s.trackId)}" title="${tr('misc.remove')}">${icon('i-x')}</button>`);
   }).join('');
   const cover = safeCover(pl.tracks[0] && pl.tracks[0].thumbnail)
-    ? `<img src="${esc(pl.tracks[0].thumbnail)}" alt="">`
+    ? `<img src="${esc(safeCover(pl.tracks[0].thumbnail))}" alt="">`
     : `<div class="detail-ph">${icon('i-note')}</div>`;
   view.innerHTML = `<div class="detail-head">
       ${cover}
@@ -2809,7 +2848,7 @@ async function viewBrowse(view, id, kind, extraParams) {
   let html = '';
   if (h.title) {
     html += `<div class="detail-head ${kind === 'artist' ? 'artist' : ''}">
-      ${safeCover(h.thumbnail) ? `<img src="${esc(h.thumbnail)}" alt="">` : `<div class="detail-ph">${icon('i-note')}</div>`}
+      ${safeCover(h.thumbnail) ? `<img src="${esc(safeCover(h.thumbnail))}" alt="">` : `<div class="detail-ph">${icon('i-note')}</div>`}
       <div class="detail-info"><div class="detail-kicker">${kick}</div><h1>${esc(h.title)}</h1>
         <div class="sub">${esc([h.strapline, h.subtitle].filter(Boolean).join(' • '))}${h.description ? `<br><span style="font-size:12.5px">${esc(h.description.slice(0, 260))}${h.description.length > 260 ? '…' : ''}</span>` : ''}</div>
         <div class="detail-actions">
@@ -2820,7 +2859,7 @@ async function viewBrowse(view, id, kind, extraParams) {
   }
   if (d.tracks.length) {
     const headerArtist = (h.artists && h.artists[0] && h.artists[0].name) || h.strapline || '';
-    const headerArtistId = (h.artists && h.artists[0] && h.artists[0].browseId) || '';
+    const headerArtistId = (h.artists && h.artists[0] && h.artists[0].pageId) || '';
     html += `${trackHeadHTML()}<div class="track-list" data-play-list="1">${d.tracks.map((t, i) => {
       const fromArr = (t.artists || []).map((a) => a.name).filter(Boolean).join(', ');
       const artist = t.artist || fromArr || headerArtist;
@@ -2829,7 +2868,7 @@ async function viewBrowse(view, id, kind, extraParams) {
         tn: i + 1,
         artist,
         subtitle: artist || t.subtitle,
-        artistBrowseId: t.artistBrowseId || (t.artists && t.artists[0] && t.artists[0].browseId) || headerArtistId,
+        artistId: t.artistId || (t.artists && t.artists[0] && t.artists[0].pageId) || headerArtistId,
         duration: normalizeDuration(t.duration),
       });
     }).join('')}</div>`;
@@ -2846,7 +2885,7 @@ async function viewBrowse(view, id, kind, extraParams) {
   if (bsv) bsv.addEventListener('click', () => {
     Library.toggleSaved({
       type: kind === 'artist' ? 'artist' : kind === 'album' ? 'album' : 'playlist',
-      browseType: kind, browseId: id,
+      pageType: kind, pageId: id,
       title: h.title, subtitle: h.subtitle || '', thumbnail: h.thumbnail,
     });
     bsv.innerHTML = icon(Library.isSaved(id) ? 'i-save-f' : 'i-save') + `<span>${tr(Library.isSaved(id) ? 'lib.saved.done' : 'lib.save')}</span>`;
@@ -2856,13 +2895,13 @@ async function viewBrowse(view, id, kind, extraParams) {
 
 /* ================= song overflow menu ================= */
 function openSongMenu(song, opts = {}) {
-  if (!song || !song.videoId) return;
+  if (!song || !song.trackId) return;
   const modal = $('#modal');
   const body = $('#modal-body');
   const actions = $('.modal-actions');
   if (actions) actions.classList.remove('hidden');
   $('#modal-title').textContent = displayTitle(song.title) || tr('modal.song');
-  const liked = Library.isFav(song.videoId);
+  const liked = Library.isFav(song.trackId);
   const qi = opts.qi;
   const inUserQ = Number.isFinite(qi) && qi > Player.index && Player.queue[qi] && Player.queue[qi]._user;
   const isFirst = inUserQ && (qi === Player.index + 1 || !(Player.queue[qi - 1] && Player.queue[qi - 1]._user));
@@ -2901,7 +2940,7 @@ function openSongMenu(song, opts = {}) {
     else if (a === 'rm') removeQueued(qi);
     else if (a === 'plup') { if (Library.moveInPlaylist(opts.plId, opts.plIndex, -1)) route(); }
     else if (a === 'pldn') { if (Library.moveInPlaylist(opts.plId, opts.plIndex, 1)) route(); }
-    else if (a === 'plrm') { Library.removeFromPlaylist(opts.plId, song.videoId); route(); }
+    else if (a === 'plrm') { Library.removeFromPlaylist(opts.plId, song.trackId); route(); }
     closeModal();
   }));
   modal.classList.remove('hidden');
@@ -2948,34 +2987,34 @@ function closeModal() {
   const actions = $('.modal-actions');
   if (actions) actions.classList.remove('hidden');
 }
-function songArtistBrowseId(s) {
+function songArtistId(s) {
   if (!s) return '';
-  if (s.artistBrowseId) return s.artistBrowseId;
+  if (s.artistId) return s.artistId;
   const a = s.artists && s.artists[0];
-  return (a && a.browseId) || '';
+  return (a && a.pageId) || '';
 }
 function goToArtist(song) {
   const s = song || focusedSong();
   if (!s) return;
-  const id = songArtistBrowseId(s);
+  const id = songArtistId(s);
   closeNowPlaying();
   if (id) go(`#/artist/${id}`);
   else if (s.artist) go(`#/search/${encodeURIComponent(String(s.artist).split(',')[0].trim())}`);
 }
-async function openSharedSong(videoId) {
-  if (!videoId) return;
-  let song = { videoId, title: 'Song' };
+async function openSharedSong(trackId) {
+  if (!trackId) return;
+  let song = { trackId, title: 'Song' };
   try {
-    const d = await api(`/api/next?videoId=${encodeURIComponent(videoId)}`);
-    const hit = (d.queue || []).find((q) => q.videoId === videoId) || (d.queue || [])[0];
+    const d = await api(`/api/next?trackId=${encodeURIComponent(trackId)}`);
+    const hit = (d.queue || []).find((q) => q.trackId === trackId) || (d.queue || [])[0];
     if (hit) song = songFromItem(hit);
   } catch {}
   openSongNowPlaying(song);
 }
 async function shareSong(song) {
   const s = song || focusedSong();
-  if (!s || !s.videoId) return;
-  const url = `${location.origin}${location.pathname}#/song/${s.videoId}`;
+  if (!s || !s.trackId) return;
+  const url = `${location.origin}${location.pathname}#/song/${s.trackId}`;
   const title = displayTitle(s.title) || s.title || 'Song';
   const text = s.artist ? `${title} — ${s.artist}` : title;
   if (navigator.share) {
@@ -3025,7 +3064,7 @@ function openSleepTimer() {
     if (m > 0) {
       Player.sleepTimer = setTimeout(() => {
         Player.wantPlaying = false; // or the background watchdog would resume it
-        Player.yt && PB.pause();
+        Player.el && PB.pause();
         Player.sleepTimer = null;
         $('#np-sleep') && $('#np-sleep').classList.remove('on');
         toast(tr('toast.sleepPaused'));
@@ -3292,7 +3331,7 @@ Player.lastVol = null;
 function isMuted() { return Number($('#mini-volume').value) === 0; }
 function applyVolume(v, remember) {
   const vol = Math.max(0, Math.min(100, Number(v) || 0));
-  if (Player.yt && Player.ready) {
+  if (Player.el && Player.ready) {
     PB.volume(vol);
     // the IFrame player keeps its own mute flag; volume 0 alone would not clear it
     if (vol === 0) PB.mute(true); else PB.mute(false);
@@ -3327,14 +3366,14 @@ $('#mini-mute') && $('#mini-mute').addEventListener('click', toggleMute);
 $('#np-mute') && $('#np-mute').addEventListener('click', toggleMute);
 
 $('#mini-volume').addEventListener('input', (e) => {
-  if (Player.yt && Player.ready) PB.volume(Number(e.target.value));
-  if (Player.yt && Player.ready) { if (Number(e.target.value) === 0) PB.mute(true); else PB.mute(false); }
+  if (Player.el && Player.ready) PB.volume(Number(e.target.value));
+  if (Player.el && Player.ready) { if (Number(e.target.value) === 0) PB.mute(true); else PB.mute(false); }
   $('#np-volume').value = e.target.value;
   updateVolumeIcon();
 });
 /* click-to-seek on the bar */
 $('#mini-bar').addEventListener('click', (e) => {
-  if (Player.cued || !Player.yt || !Player.ready) return;
+  if (Player.cued || !Player.el || !Player.ready) return;
   const r = e.currentTarget.getBoundingClientRect();
   const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
   const dur = PB.duration() || 0;
@@ -3390,8 +3429,8 @@ $('#mini-float').addEventListener('click', (e) => { e.stopPropagation(); toggleF
 $('#np-quality').addEventListener('click', toggleQuality);
 $('#np-sb').addEventListener('click', toggleSB);
 $('#np-volume').addEventListener('input', (e) => {
-  if (Player.yt) PB.volume(Number(e.target.value));
-  if (Player.yt && Player.ready) { if (Number(e.target.value) === 0) PB.mute(true); else PB.mute(false); }
+  if (Player.el) PB.volume(Number(e.target.value));
+  if (Player.el && Player.ready) { if (Number(e.target.value) === 0) PB.mute(true); else PB.mute(false); }
   $('#mini-volume').value = e.target.value;
   updateVolumeIcon();
 });
@@ -3426,7 +3465,7 @@ const range = $('#np-range');
 range.addEventListener('input', () => { seekDragging = true; });
 range.addEventListener('change', () => {
   seekDragging = false;
-  if (isPreviewing() || !Player.yt || !Player.ready) return;
+  if (isPreviewing() || !Player.el || !Player.ready) return;
   const dur = PB.duration() || 0;
   PB.seek((range.value / 1000) * dur, true);
 });
@@ -3512,7 +3551,7 @@ function widgetDocs() {
 }
 function syncFloatWidget() {
   const s = Player.current;
-  const playing = Player.ready && PB.state() === YT.PlayerState.PLAYING;
+  const playing = Player.ready && PB.state() === PS.PLAYING;
   const ic = icon(playing ? 'i-pause' : 'i-play');
   for (const doc of widgetDocs()) {
     const art = doc.getElementById('fw-art');
@@ -3558,7 +3597,7 @@ function bindFloatWidget(rootDoc) {
   });
   root.querySelector('#fw-bar')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (!Player.yt || !Player.ready) return;
+    if (!Player.el || !Player.ready) return;
     const r = e.currentTarget.getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     const dur = PB.duration() || 0;
@@ -3658,12 +3697,12 @@ async function openPipWidget() {
 let pipArtImg = null;
 let pipArtSrc = '';
 function loadPipArt(url) {
-  if (!url || url === pipArtSrc) return;
+  if (!sameOriginImage(url) || url === pipArtSrc) return;
   pipArtSrc = url;
   const img = new Image();
   img.onload = () => { pipArtImg = img; drawPipFrame(); };
   img.onerror = () => { pipArtImg = null; };
-  img.src = '/api/thumb?url=' + encodeURIComponent(url);
+  img.src = sameOriginImage(url);
 }
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -3802,25 +3841,11 @@ function drawPipFrame(pct) {
   }
 }
 
-/* ---------- the canvas video behind picture in picture on phones ----------
+/* ---------- the canvas video behind picture in picture ----------
  *
- * The window is built from a <video> element fed by a canvas we paint
- * ourselves, while the music comes out of the YouTube frame.
- *
- * Play and pause are NOT taken from this video's events. That was tried once
- * and the result was fatal: on a phone the browser pauses its own canvas video
- * the moment the page is hidden, that read as a pause command, and the music
- * died on the spot. On a tablet the video is not paused, so the symptom only
- * ever showed up on phones.
- *
- * The right route is Media Session, whose handlers are already registered in
- * setupMediaSession. The previous and next buttons that appear in the picture
- * in picture window are proof that this is the path Android uses; a plain
- * video element has no skip buttons at all.
- *
- * Two jobs are left here: keep the video running so the picture does not go
- * dead, and keep its state in step with the music so the browser does not
- * show the wrong thing.
+ * The window is a <video> fed by a canvas painted here. Play and pause are
+ * not taken from this video's events, because the browser pauses it on its
+ * own when the page is hidden; Media Session carries the real commands.
  */
 let _pipSelf = false;
 
@@ -4081,6 +4106,9 @@ function noticeDesktopSiteOn() {
 }
 
 function maybeShowAppBanner() {
+  // Playback now comes from this page's own audio element, which phone
+  // browsers keep running in the background, so there is nothing to warn about.
+  return;
   const el = $('#app-banner');
   if (!el) return;
   const worthOffering =
@@ -4118,69 +4146,8 @@ window.addEventListener('load', () => setTimeout(() => {
 
 /* ---------- the page is not on screen ----------
  *
- * What was tried, and what it settled, so nobody spends another evening on it:
- *
- *   - Desktop browser: a background tab keeps playing on its own, always has.
- *   - Phone browser asked for the desktop site: the music stops for a moment,
- *     the retry below gets it going again, and it carries on in the
- *     background. The notification controls work too. Same on a tablet, which
- *     never sends a phone user agent in the first place.
- *   - Phone browser in its normal mode: it stops and stays stopped. Every
- *     retry is refused. Giving the page a media element of its own does raise
- *     a working notification, and its buttons do reach this code, but asking
- *     to play from inside one of those handlers is refused just the same. That
- *     is the decisive test, because a notification press carries the user
- *     activation that no automatic retry has, and it still made no sound.
- *
- *   - The Android app, same phone and same YouTube frame, keeps playing. The
- *     only thing done differently there is that its WebView never reports
- *     itself hidden — see BackgroundWebView.
- *
- * Read together, those say the block is not the page being told it is hidden:
- * the desktop site case is hidden just the same and still plays. What differs
- * is only the user agent, and what reads the user agent is the embedded
- * player itself.
- *
- * The clearest evidence is what the notification bar shows. On the desktop
- * site a media notification appears and its play button works. In normal mode
- * nothing appears at all. That ordering matters and is easy to get backwards:
- * the notification is not missing because playback is blocked by some policy,
- * playback stopping is why the notification never exists. Chrome only raises
- * one for media that is actually running, so once the frame goes quiet there
- * is nothing to attach it to. Holding a media element of our own does raise
- * that notification, and it was still removed again: the note beside
- * assertMediaSession says what it settled and why keeping it was worse.
- *
- * The stopping itself is not something a page can talk its way out of. It
- * cannot set its own user agent, and the frame that makes the sound belongs
- * to another origin.
- *
- * Which leaves one idea, and it was built and measured on the device before
- * being removed again: stop letting the frame be the thing that makes the
- * sound, and play the audio from an element of our own instead, the way every
- * other music site does. Getting a file to feed that element has exactly two
- * possible sources, and both are closed.
- *
- *   - Fetching the audio ourselves. Six client types were tried from the real
- *     server. Two demand a device attestation only the official app can
- *     produce, three are told to sign in to prove they are not a robot
- *     because the address belongs to a data centre, and two are simply no
- *     longer served. No amount of code gets past either wall.
- *
- *   - The third party converter this app already uses for downloads. It does
- *     hand back a file, but it cannot feed a player. It answers no cross
- *     origin request, so the file cannot be read and handed over as one
- *     piece. It serves no partial requests, so streaming it survives only
- *     until the first jump in position and then falls to nothing, which is
- *     the stutter that was heard. Its m4a never delivered a single byte to
- *     the element. And every file takes between fourteen and thirty seconds
- *     to prepare, which is a wait nobody should be asked to sit through
- *     before a song starts.
- *
- * So the honest things left are what this code does: keep asking while the
- * tab is hidden, because on the desktop site that is what makes it work; pick
- * playback back up on return; and say plainly which switch fixes it rather
- * than let the music die without explanation.
+ * If the browser pauses playback while the page is hidden, it is asked to
+ * carry on a few times, and picked up again when the page returns.
  */
 const BG_RESUME_MAX = 8;
 let bgResumeTries = 0;
@@ -4205,12 +4172,7 @@ const BG_SETTLE_MS = 6000;
 let bgHiddenAt = 0;
 let bgSettled = false;
 
-/* Pushing the YouTube frame to start again only makes sense where that is
- * actually allowed, which is the desktop site and anything that is not a
- * phone. On a phone in normal mode the request is always refused, and pressing
- * it over and over is worse than pointless: every attempt lets out a fragment
- * of sound before being stopped again, so what people hear is a stutter. Far
- * better to stay quiet. */
+/* Forcing a resume is only tried where the browser allows it. */
 function mayForceResume() {
   return !isPhoneDefaultMode();
 }
@@ -4229,7 +4191,7 @@ function acceptPause() {
 
 function resumeIfBackgroundPause(state) {
   if (!document.hidden || !Player.wantPlaying || Player.cued) return;
-  if (state !== YT.PlayerState.PAUSED) return;
+  if (state !== PS.PAUSED) return;
   if (!mayForceResume()) return;
   if (bgSettled) { acceptPause(); return; }
   if (bgResumeTries >= BG_RESUME_MAX) return;
@@ -4257,7 +4219,7 @@ document.addEventListener('visibilitychange', () => {
   // where it stopped instead of making someone hunt for the play button.
   let st = -1;
   try { st = PB.state(); } catch {}
-  if (Player.wantPlaying && !Player.cued && st === YT.PlayerState.PAUSED) {
+  if (Player.wantPlaying && !Player.cued && st === PS.PAUSED) {
     try { PB.play(); } catch {}
     // Say why it happened, once on this device. Nagging about it every time
     // someone checks a message would be worse than the silence was.
@@ -4266,7 +4228,7 @@ document.addEventListener('visibilitychange', () => {
        vanished before it could be read and never said how to fix it. Once per
        device only: nagging every time someone checks a message would be worse
        than the silence it replaced. */
-    if (!bgHintShown && !store.get('bgnote', false) && isAndroidDefaultMode()
+    if (false && !bgHintShown && !store.get('bgnote', false) && isAndroidDefaultMode()
         && !document.documentElement.classList.contains('in-app')) {
       bgHintShown = true;
       store.set('bgnote', true);
@@ -4280,18 +4242,18 @@ document.addEventListener('visibilitychange', () => {
 
 // Backstop for a browser that pauses without reporting a state change.
 setInterval(() => {
-  if (!Player.yt || !Player.ready) return;
+  if (!Player.el || !Player.ready) return;
   if (!document.hidden) { bgResumeTries = 0; return; }
   if (!Player.wantPlaying || Player.cued) return;
   if (!mayForceResume()) return;
   let st = -1;
   try { st = PB.state(); } catch { return; }
-  if (st === YT.PlayerState.PAUSED) {
+  if (st === PS.PAUSED) {
     if (bgSettled) { acceptPause(); return; }
     if (bgResumeTries >= BG_RESUME_MAX) return;
     bgResumeTries++;
     try { PB.play(); } catch {}
-  } else if (st === YT.PlayerState.PLAYING) {
+  } else if (st === PS.PLAYING) {
     bgResumeTries = 0;
     // Music running this long with the page hidden means the background is not
     // the problem here. From now on a pause is somebody's doing, not the
@@ -4365,5 +4327,98 @@ document.addEventListener('error', (e) => {
 }, true);
 window.addEventListener('pagehide', persistQueue);
 document.addEventListener('visibilitychange', () => { if (document.hidden) persistQueue(); });
+/* Libraries saved before this version still hold two kinds of old values:
+ * image addresses and plain catalogue ids. Both are sent once to this
+ * origin, which hands back same-origin image paths and sealed ids, and the
+ * stored copies are rewritten with those. Runs again only if something old
+ * turns up, say from restoring an old backup file. */
+// any absolute image address; the server decides what it can turn into a
+// same-origin path and blanks the rest
+const OLD_IMG_RE = /^https?:\/\//i;
+const ID_FIELDS = new Set(['trackId', 'pageId', 'listId', 'lyricsId', 'relatedId', 'artistId', 'params']);
+const IMG_FIELDS = new Set(['thumbnail', 'image', 'art']);
+const SEALED_ID_RE = /^x[A-Za-z0-9_-]{18,}$/;
+const KEYED_BY_TRACK = ['stats', 'lyrshift'];
+const isRawId = (v) => typeof v === 'string' && v && !SEALED_ID_RE.test(v) && !v.startsWith('local_');
+function collectOld(v, imgs, idset, depth = 0) {
+  if (depth > 12 || v == null) return;
+  if (Array.isArray(v)) { for (const x of v) collectOld(x, imgs, idset, depth + 1); return; }
+  if (typeof v === 'object') {
+    for (const k of Object.keys(v)) {
+      const x = v[k];
+      if (typeof x === 'string') {
+        if (IMG_FIELDS.has(k) && OLD_IMG_RE.test(x)) imgs.add(x);
+        else if (ID_FIELDS.has(k) && isRawId(x)) idset.add(x);
+      } else collectOld(x, imgs, idset, depth + 1);
+    }
+  }
+}
+function swapOld(v, imgMap, idMap, depth = 0) {
+  if (depth > 12 || v == null) return v;
+  if (Array.isArray(v)) return v.map((x) => swapOld(x, imgMap, idMap, depth + 1));
+  if (typeof v === 'object') {
+    const o = {};
+    for (const k of Object.keys(v)) {
+      const x = v[k];
+      if (typeof x === 'string' && IMG_FIELDS.has(k) && OLD_IMG_RE.test(x)) o[k] = imgMap[x] || '';
+      else if (typeof x === 'string' && ID_FIELDS.has(k) && idMap[x]) o[k] = idMap[x];
+      else o[k] = swapOld(x, imgMap, idMap, depth + 1);
+    }
+    return o;
+  }
+  return v;
+}
+async function sealList(path, field, list) {
+  const out = {};
+  for (let i = 0; i < list.length; i += 500) {
+    const batch = list.slice(i, i + 500);
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: batch }) });
+    if (!r.ok) throw new Error('seal failed');
+    const sealed = (await r.json()).sealed || [];
+    batch.forEach((v, j) => { if (typeof sealed[j] === 'string' && sealed[j]) out[v] = sealed[j]; });
+  }
+  return out;
+}
+async function migrateStoredData() {
+  const imgs = new Set();
+  const idset = new Set();
+  const data = {};
+  for (const k of STORE_KEYS_WITH_SONGS) { data[k] = store.get(k, null); collectOld(data[k], imgs, idset); }
+  for (const k of KEYED_BY_TRACK) {
+    data[k] = data[k] || store.get(k, null);
+    if (data[k] && typeof data[k] === 'object') for (const id of Object.keys(data[k])) if (isRawId(id)) idset.add(id);
+  }
+  for (const q of Player.queue) collectOld(q, imgs, idset);
+  if (!imgs.size && !idset.size) return;
+  let imgMap = {};
+  let idMap = {};
+  try {
+    if (imgs.size) imgMap = await sealList('/api/img/seal', 'urls', [...imgs]);
+    if (idset.size) idMap = await sealList('/api/id/seal', 'values', [...idset]);
+  } catch { return; }
+  for (const k of STORE_KEYS_WITH_SONGS) {
+    if (data[k] == null) continue;
+    let v = swapOld(data[k], imgMap, idMap);
+    if (KEYED_BY_TRACK.includes(k) && v && typeof v === 'object' && !Array.isArray(v)) {
+      const o = {};
+      for (const id of Object.keys(v)) o[idMap[id] || id] = v[id];
+      v = o;
+    }
+    store.set(k, v);
+  }
+  const shift = store.get('lyrshift', null);
+  if (shift && typeof shift === 'object') {
+    const o = {};
+    for (const id of Object.keys(shift)) o[idMap[id] || id] = shift[id];
+    store.set('lyrshift', o);
+  }
+  Player.queue = Player.queue.map((q) => swapOld(q, imgMap, idMap));
+  persistQueue();
+  renderSidebarLibrary();
+  renderNowPlaying();
+  renderQueue();
+}
+
 restoreQueue();
+migrateStoredData();
 route();

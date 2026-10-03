@@ -2,10 +2,9 @@
   "name": "ar-music",
   "version": "1.0.0",
   "private": true,
-  "description": "Pemutar musik web dari YouTube Music. Lirik tersinkron, antrean, library lokal, dan aplikasi Android.",
+  "description": "Pemutar musik web. Lirik tersinkron, antrean, library lokal, dan aplikasi Android.",
   "keywords": [
     "music-player",
-    "youtube-music",
     "lyrics",
     "web-app",
     "vanilla-js",
@@ -23,12 +22,17 @@
   "license": "ISC",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/",
+    "check": "node --check server.js && node --check public/app.js && node --check public/i18n.js && node --check lib/images.js && node --check lib/ratelimit.js && for f in lib/playback/*.js; do node --check $f; done"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "bgutils-js": "4.0.3",
+    "express": "^5.2.1",
+    "jsdom": "26.1.0",
+    "youtubei.js": "18.1.0"
   }
 }

@@ -143,9 +143,9 @@ class MainActivity : AppCompatActivity() {
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
                 val url = req.url
-                // Keep the app on its own site and on the YouTube frames the
-                // player needs. Anything else opens in the real browser, so the
-                // app can never be turned into a general purpose browser.
+                // Keep the app on its own site. Anything else opens in the real
+                // browser, so the app can never be turned into a general
+                // purpose browser.
                 if (isAllowed(url)) return false
                 return try {
                     startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url))
@@ -196,8 +196,8 @@ class MainActivity : AppCompatActivity() {
     /*
      * Pemutaran di latar belakang.
      *
-     * The sound comes from the YouTube player inside the WebView, and that
-     * player stops itself the moment its page counts as out of sight. So the
+     * The sound comes from the audio element inside the WebView, and a page
+     * that counts as out of sight may be throttled. So the
      * WebView here is a BackgroundWebView, which never passes the word
      * "hidden" on to the page. Three things have to hold together:
      *
@@ -224,20 +224,23 @@ class MainActivity : AppCompatActivity() {
      */
     private fun unduh(url: String, namaDiminta: String) {
         val uri = runCatching { Uri.parse(url) }.getOrNull()
-        if (uri == null || (uri.scheme != "https" && uri.scheme != "http")) {
+        // Downloads come from the site's own /api/download and nowhere else.
+        if (uri == null || uri.scheme != "https" || uri.host != SITE_HOST) {
             Toast.makeText(this, Wording.of(this, "badLink"), Toast.LENGTH_SHORT).show()
             return
         }
         // Path separators have to go, or the file could land somewhere other
-        // than the folder it was meant for.
-        val nama = namaDiminta.substringAfterLast('/').substringAfterLast('\\')
-            .ifBlank { "armusic.mp3" }
+        // than the folder it was meant for. Downloads are the original AAC
+        // audio in MP4, so the file is named .m4a.
+        val dasar = namaDiminta.substringAfterLast('/').substringAfterLast('\\')
+            .ifBlank { "armusic" }
+        val nama = if (dasar.endsWith(".m4a")) dasar else "$dasar.m4a"
 
         val hasil = runCatching {
             val minta = DownloadManager.Request(uri)
                 .setTitle(nama)
                 .setDescription("AR Music")
-                .setMimeType("audio/mpeg")
+                .setMimeType("audio/mp4")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setAllowedOverMetered(true)
                 .setAllowedOverRoaming(true)
@@ -261,13 +264,8 @@ class MainActivity : AppCompatActivity() {
     private fun isAllowed(url: Uri): Boolean {
         if (url.scheme != "https") return false
         val host = url.host ?: return false
-        return host == SITE_HOST ||
-            host.endsWith(".youtube.com") || host == "youtube.com" ||
-            host.endsWith(".ytimg.com") ||
-            host.endsWith(".googlevideo.com") ||
-            host.endsWith(".ggpht.com") ||
-            host.endsWith(".googleusercontent.com") ||
-            host == "fonts.googleapis.com" || host == "fonts.gstatic.com"
+        // Audio, artwork and fonts all come from the site itself.
+        return host == SITE_HOST
     }
 
     /** Android 13+ will not show the playback notification without this. */

@@ -1169,23 +1169,7 @@ body.float-mode.has-player #sidebar { margin-bottom: 0; }
 }
 #toast.hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(8px); }
 
-/* Hidden player. Default 720² = YouTube Music audio (hd720). .hq-audio = YouTube max. */
-#yt-holder {
-  position: fixed;
-  width: 720px;
-  height: 720px;
-  left: 0;
-  top: 0;
-  opacity: 0.001;
-  pointer-events: none;
-  z-index: -1;
-  overflow: hidden;
-}
-#yt-holder iframe,
-#yt-player {
-  width: 720px !important;
-  height: 720px !important;
-}
+#audio-player { display: none; }
 #pip-canvas, #pip-video {
   position: fixed;
   /* follows the canvas bitmap, 480x270, so the box does not fight the shape
@@ -1198,16 +1182,6 @@ body.float-mode.has-player #sidebar { margin-bottom: 0; }
   pointer-events: none;
   z-index: -1;
 }
-body.hq-audio #yt-holder {
-  width: 1920px;
-  height: 1080px;
-}
-body.hq-audio #yt-holder iframe,
-body.hq-audio #yt-player {
-  width: 1920px !important;
-  height: 1080px !important;
-}
-
 .skeleton {
   background: linear-gradient(90deg, var(--card) 25%, var(--card-hover) 50%, var(--card) 75%);
   background-size: 200% 100%; animation: sk 1.4s infinite; border-radius: var(--radius);

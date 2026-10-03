@@ -1,10 +1,67 @@
-/* AR Music - backend proxy for YouTube Music InnerTube API + LRCLIB lyrics */
+/* AR Music backend: catalogue, lyrics, artwork and the playback gateway.
+   The browser only ever talks to this server. */
 const express = require('express');
 const path = require('path');
+const playback = require('./lib/playback');
+const images = require('./lib/images');
+const ids = require('./lib/ids');
 
 const app = express();
-app.use(express.json());
+app.disable('x-powered-by');
+app.use(express.json({ limit: '256kb' }));
+
+/* No upstream address leaves this server in a JSON body. Every response from
+   the routes below goes through sealDeep, which turns artwork URLs into
+   same-origin /api/img/ paths and drops any other upstream link. Done here,
+   once, so a route added later cannot forget it. */
+/* On the origin (the machine that talks to the catalogue for audio), nothing
+   is served except the two audio routes, and those only with the key. */
+if (process.env.ARMUSIC_ROLE === 'origin') {
+  app.use((req, res, next) => {
+    if (/^\/api\/(play|download)\//.test(req.path)) return next();
+    res.status(404).end();
+  });
+}
+
+app.use('/api', (req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body) => json(ids.sealIdsDeep(images.sealDeep(body)));
+  next();
+});
+app.use('/api', ids.openQuery);
+
+/* Pages and scripts may only reach this origin, nothing else. */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "connect-src 'self'",
+  "frame-src 'none'",
+  "worker-src 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+].join('; ');
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) res.setHeader('Content-Security-Policy', CSP);
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
+
+/* Errors from the routes below go out as a fixed word. The message itself can
+   carry an upstream address or status, so it stays in the log. */
+function apiError(res, e) {
+  console.error('[api]', (res.req && res.req.path) || '', e && e.message);
+  if (!res.headersSent) res.status(500).json({ error: 'UPSTREAM_ERROR' });
+}
+
+playback.mount(app);
+app.get('/api/img/:token', images.serveImage);
+app.post('/api/img/seal', images.sealBatch);
+app.post('/api/id/seal', ids.sealBatch);
 
 const YTM = 'https://music.youtube.com/youtubei/v1';
 /* gl is the country and decides which charts and recommendations come back,
@@ -26,7 +83,7 @@ const HEADERS = {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
 };
 
-/* The language YouTube Music answers in.
+/* The language the catalogue answers in.
  *
  * It used to be written straight into CONTEXT as Indonesian, so every word
  * coming back was Indonesian whatever language the app was set to: the kind
@@ -258,7 +315,7 @@ app.get('/api/home', async (req, res) => {
     });
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
@@ -272,12 +329,13 @@ app.get('/api/charts', async (req, res) => {
     });
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
-/* SponsorBlock segments (skip non-music parts) */
-app.get('/api/sponsorblock', async (req, res) => {
+/* Parts of a track that are not music (intros, talk), from a public
+   community list, so the player can skip them. */
+app.get('/api/skips', async (req, res) => {
   try {
     const vid = String(req.query.videoId || '');
     const cats = encodeURIComponent(JSON.stringify(['sponsor', 'selfpromo', 'interaction', 'intro', 'outro', 'music_offtopic']));
@@ -310,7 +368,7 @@ app.get('/api/moods', async (req, res) => {
     });
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
@@ -370,7 +428,7 @@ app.get('/api/search', async (req, res) => {
     }
     res.json({ sections });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
@@ -380,7 +438,7 @@ app.get('/api/suggest', async (req, res) => {
     const sugg = findAll(d, 'searchSuggestionRenderer').map((s) => text(s.suggestion));
     res.json({ suggestions: sugg });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
@@ -420,7 +478,7 @@ app.get('/api/next', async (req, res) => {
     }
     res.json({ queue, lyricsBrowseId, relatedBrowseId });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
@@ -444,14 +502,16 @@ app.get('/api/related', async (req, res) => {
     sections = sections.filter((x) => x.items && x.items.length);
     res.json({ sections });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
 /* album / playlist / artist / mood pages */
 async function browsePage(rawId, params, hl = 'en') {
   let id = rawId || '';
-  if (/^(PL|RDCLAK|VLPL|OLAK)/.test(id) && !id.startsWith('VL')) id = 'VL' + id;
+  // playlists and mixes are browsed with a VL prefix; the page no longer
+  // adds it because it only ever holds sealed ids
+  if (/^(PL|RD|OLAK)/.test(id)) id = 'VL' + id;
   const body = { browseId: id };
   if (params) body.params = params;
   const d = await yt('browse', body, '', hl);
@@ -529,95 +589,24 @@ app.get('/api/browse', async (req, res) => {
   try {
     res.json(await browsePage(req.query.id, req.query.params, langOf(req)));
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
-/* ---------------- music download via third-party converter (loader.to) ----------------
-   Highest quality MP3 (320kbps). Our server orchestrates the conversion job:
-   start -> poll progress -> hand the final direct file URL to the browser.
-   The user never sees or visits the third-party site — the file just downloads. */
-const LOADER_API = 'https://loader.to/ajax/download.php';
-const DL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+/* ---------------- audio ----------------
 
-/* start a conversion job: returns { jobId, progressUrl } */
-app.get('/api/download-start', async (req, res) => {
-  const videoId = String(req.query.videoId || '');
-  if (!/^[\w-]{6,20}$/.test(videoId)) return res.status(400).json({ error: 'bad id' });
-  try {
-    const u = `${LOADER_API}?format=mp3&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}`;
-    const r = await fetch(u, { headers: { 'User-Agent': DL_UA, Referer: 'https://loader.to/' } });
-    if (!r.ok) throw new Error(`start -> ${r.status}`);
-    const d = await r.json();
-    if (!d.success || !d.id) throw new Error('converter refused this song');
-    res.json({ jobId: d.id, progressUrl: d.progress_url, title: d.title || null });
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
+   Playback and downloads both go through lib/playback, mounted above as
+   /api/play/:trackId and /api/download/:trackId. The browser hands over a
+   track id and gets bytes back from this origin; the upstream address, its
+   query string and its token never leave the server.
 
-/* poll job progress: returns { progress (0-1000), done, url } */
-app.get('/api/download-progress', async (req, res) => {
-  const purl = String(req.query.progressUrl || '');
-  try {
-    const pu = new URL(purl);
-    const host = pu.hostname;
-    const okHost = host === 'loader.to' || host === 'savenow.to' || host === 'affadaffa.com'
-      || host.endsWith('.loader.to') || host.endsWith('.savenow.to') || host.endsWith('.affadaffa.com');
-    if (!okHost) {
-      return res.status(400).json({ error: 'bad progress url' });
-    }
-    const r = await fetch(purl, { headers: { 'User-Agent': DL_UA } });
-    if (!r.ok) throw new Error(`progress -> ${r.status}`);
-    const d = await r.json();
-    res.json({
-      progress: d.progress || 0,
-      done: !!d.success && !!d.download_url,
-      url: d.download_url || null,
-      text: d.text || '',
-    });
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
+   Downloads used to go through a third party converter that produced an MP3
+   and handed its own file address to the browser. That meant a wait of
+   fifteen to thirty seconds, a lossy re-encode, and a request from the
+   browser straight to someone else's server. They now stream the original
+   audio exactly as playback does, as an attachment. */
 
-/* ---------------- why the audio is not fetched here ----------------
-
-   This was measured once and the measurement closed the question. The probe
-   that did it is gone; the note stays so nobody starts over from nothing.
-
-   The background: on a phone whose browser is still in its normal mode, the
-   YouTube frame refuses to make a sound the moment its page is left, and that
-   refusal held even against a press on the notification, which carries a
-   person's own interaction with it. The only way left was to stop letting that
-   frame be the source of sound and play the audio through a media element of
-   the page's own, which browsers treat like any other music site and allow to
-   keep going in the background. That needs this server to find an audio stream
-   by itself.
-
-   Six client types were tried from the real server and every one was turned
-   away, behind three different walls:
-
-     ANDROID, IOS            Precondition check failed. The request wants proof
-                             the device is genuine, which only the official app
-                             can produce.
-     ANDROID_VR, MWEB, WEB   Asked to sign in to prove it is not a robot. That
-                             is about the reputation of the address, and a data
-                             centre address like the one this runs on is already
-                             marked.
-     TVHTML5, WEB_EMBEDDED   Old clients, no longer served.
-
-   Neither of the first two walls can be climbed by writing better code. One
-   wants a real device, the other wants a home address. And even if some client
-   happened to slip through today, this sort of path changes a few times a year
-   and would break again.
-
-   So the audio still comes from the YouTube frame, and for listening while
-   another app is open the answer is either the Android app or turning on
-   Desktop site in the browser. Both are named on the banner shown to the
-   devices that need it. */
-
-/* resolve a YT Music / YouTube URL (playlist, album, artist, song) into an app route */
+/* turn a pasted link (playlist, album, artist, song) into an app route */
 app.get('/api/resolve', async (req, res) => {
   try {
     const raw = String(req.query.url || '').trim();
@@ -626,18 +615,18 @@ app.get('/api/resolve', async (req, res) => {
     const list = u.searchParams.get('list');
     const v = u.searchParams.get('v');
     const m = u.pathname.match(/\/(playlist|channel|browse|watch)\/?([^/]*)?/);
-    if (list && !v) return res.json({ kind: 'playlist', id: list });
+    if (list && !v) return res.json({ kind: 'playlist', id: ids.sealId(list) });
     if (v) return res.json({ kind: 'song', videoId: v, playlistId: list || null });
-    if (m && m[1] === 'channel' && m[2]) return res.json({ kind: 'artist', id: m[2] });
-    if (m && m[1] === 'browse' && m[2]) return res.json({ kind: m[2].startsWith('MPRE') ? 'album' : 'playlist', id: m[2] });
-    return res.status(400).json({ error: 'Could not recognize this link. Paste a YouTube Music playlist/album/song link.' });
+    if (m && m[1] === 'channel' && m[2]) return res.json({ kind: 'artist', id: ids.sealId(m[2]) });
+    if (m && m[1] === 'browse' && m[2]) return res.json({ kind: m[2].startsWith('MPRE') ? 'album' : 'playlist', id: ids.sealId(m[2]) });
+    return res.status(400).json({ error: 'UNRECOGNISED_LINK' });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
 /* ---------------- lyrics: multi-strategy matcher ----------------
-   LRCLIB (synced) -> LRCLIB fuzzy -> YouTube Music (plain)
+   LRCLIB (synced) -> LRCLIB fuzzy -> catalogue (plain)
    -> NetEase (synced/plain) -> lyrics.ovh (plain). */
 
 function displayTitle(t) {
@@ -822,7 +811,7 @@ app.get('/api/lyrics', async (req, res) => {
 
     let synced = null, plain = null, source = null;
 
-    // 1) YouTube Music lyrics for this exact video (plain, but correct)
+    // 1) catalogue lyrics for this exact track (plain, but correct)
     if (browseId) {
       try {
         const body = {
@@ -840,7 +829,7 @@ app.get('/api/lyrics', async (req, res) => {
         if (r.ok) {
           const d = await r.json();
           const lyr = extractYtmLyrics(d);
-          if (lyr) { plain = lyr; source = 'YouTube Music'; }
+          if (lyr) { plain = lyr; source = 'AR Music'; }
         }
       } catch {}
     }
@@ -895,38 +884,21 @@ app.get('/api/lyrics', async (req, res) => {
 
     res.json({ synced: synced || null, plain: plain || null, source });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    apiError(res, e);
   }
 });
 
 
-/* album-art proxy so the PiP canvas is not CORS-tainted */
-app.get('/api/thumb', async (req, res) => {
-  try {
-    const raw = String(req.query.url || '');
-    const u = new URL(raw);
-    const host = u.hostname;
-    const ok =
-      host.endsWith('ytimg.com') ||
-      host.endsWith('ggpht.com') ||
-      host.endsWith('googleusercontent.com');
-    if (!ok) return res.status(400).end();
-    const r = await fetch(raw, {
-      headers: { 'User-Agent': 'Mozilla/5.0 ARMusicThumb/1.0', Accept: 'image/*' },
-    });
-    if (!r.ok) return res.status(502).end();
-    res.setHeader('Content-Type', r.headers.get('content-type') || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(Buffer.from(await r.arrayBuffer()));
-  } catch {
-    res.status(500).end();
-  }
-});
+/* The old artwork proxy took any URL on a Google image host. Artwork now
+   arrives as sealed /api/img/ paths, so this route is no longer needed and is
+   gone rather than left open. */
 
+app.use('/api', (req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
 app.use((req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 const PORT = process.env.PORT || 3000;
 if (require.main === module) {
-  app.listen(PORT, '0.0.0.0', () => console.log(`AR Music running on :${PORT}`));
+  const HOST = process.env.HOST || '0.0.0.0';
+  app.listen(PORT, HOST, () => console.log(`AR Music running on ${HOST}:${PORT}`));
 }
 module.exports = app;

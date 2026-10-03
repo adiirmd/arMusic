@@ -1,6 +1,6 @@
 # AR Music
 
-Pemutar musik web gratis. Cari, telusuri, dan putar lagu dari YouTube Music lengkap dengan lirik tersinkron, antrean, dan library lokal tanpa akun, tanpa iklan, dan tanpa build step.
+Pemutar musik web gratis. Cari, telusuri, dan putar lagu lengkap dengan lirik tersinkron, antrean, dan library lokal, tanpa akun dan tanpa iklan.
 
 **Live:** [music.adiirmd.id](https://music.adiirmd.id)
 
@@ -9,76 +9,86 @@ Pemutar musik web gratis. Cari, telusuri, dan putar lagu dari YouTube Music leng
 ## Fitur
 
 **Pemutaran**
-- Putar lagu, album, playlist, dan radio artis dari YouTube Music
-- Antrean dengan drag-and-drop, shuffle, dan repeat (satu lagu / semua)
+- Putar lagu, album, playlist, dan radio artis
+- Antrean, shuffle, dan repeat (satu lagu atau semua)
 - Lirik tersinkron per baris, klik baris untuk lompat ke detiknya
-- Kontrol kecepatan putar, sleep timer, dan pilihan kualitas audio
-- Auto-skip segmen non-musik lewat SponsorBlock
-- Widget mengambang dan Picture-in-Picture, tetap jalan saat pindah tab
-- Terintegrasi Media Session, jadi tombol di notifikasi dan headset berfungsi
+- Kecepatan putar, sleep timer, dan dua pilihan kualitas audio
+- Lewati intro dan obrolan secara otomatis
+- Widget mengambang dan Picture-in-Picture
+- Media Session, jadi tombol di notifikasi dan headset berfungsi
+- Unduh lagu sebagai file audio asli (m4a), tanpa konversi ulang
 
 **Jelajah**
-- Beranda, pencarian dengan saran, tangga lagu, dan kategori mood/genre
+- Beranda, pencarian dengan saran, tangga lagu, kategori mood dan genre
 - Halaman album, playlist, dan artis
 - Impor playlist lewat tautan
 
 **Library**
-- Favorit, playlist buatan sendiri, riwayat dengar, album/artis tersimpan
+- Favorit, playlist sendiri, riwayat, album dan artis tersimpan
 - Statistik dengar
 - Backup dan restore seluruh library sebagai satu file JSON
-
-**Tampilan**
-- Tema biru dengan mode gelap dan terang
-- Responsif dari ponsel sampai desktop, siap dibungkus jadi aplikasi Android
 
 ---
 
 ## Cara kerja
 
 ```
-Browser ──────────────► YouTube IFrame Player   (audio diputar di sini)
-   │
-   └──── /api/* ──────► Express  ──────────────► YouTube Music InnerTube
-                                  ──────────────► LRCLIB / Netease / Textyl  (lirik)
-                                  ──────────────► SponsorBlock              (lewati segmen)
+Browser ── HTTPS ──► music.adiirmd.id (Vercel)
+                       │  /api/*      katalog, lirik, gambar
+                       │  /api/play   audio, Range aware
+                       ▼
+                     origin (server rumah) ──► sumber audio
 ```
 
-Frontend-nya SPA vanilla JavaScript, tanpa framework dan tanpa bundler — `public/` disajikan apa adanya. Backend Express hanya bertugas jadi proxy: mengambil metadata dari API internal YouTube Music, mencari lirik dari beberapa sumber, dan meneruskan thumbnail.
+Browser hanya pernah bicara dengan domain AR Music. Tidak ada iframe, script, gambar, font, atau request audio ke domain lain, dan Content-Security-Policy halaman mengunci semuanya ke `'self'`.
 
-**Audio tidak pernah melewati server.** Pemutaran sepenuhnya ditangani YouTube IFrame Player di browser. Artinya log server tidak akan pernah menunjukkan error pemutaran — kalau lagu tidak mau jalan, periksa Console browser, bukan log backend.
+- **Audio** diputar oleh elemen `<audio>` dengan sumber `/api/play/<id>`. Server menerjemahkan id ke sumber audio, membuka koneksi ke sana, lalu meneruskan byte secara streaming begitu tiba. Tidak ada file sementara, tidak ada transcoding, tidak ada buffer seluruh lagu. Range request diteruskan apa adanya, jadi seek langsung meminta posisi yang dituju. Backpressure dijaga lewat `stream.pipeline`: client yang lambat ikut memperlambat pembacaan dari sumber.
+- **Id** yang diterima browser adalah token terenkripsi (AES, deterministik), bukan id asli dari katalog.
+- **Gambar** dikirim sebagai `/api/img/<token>`, alamat aslinya terenkripsi dan hanya dibuka di server.
+- **Font** di-host sendiri di `public/fonts`.
+
+Kenapa ada origin terpisah: sumber audio menolak alamat IP data center untuk hampir semua lagu, dan alamat media yang diberikan terikat ke IP yang memintanya. Jadi resolve dan pengambilan audio dijalankan di server dengan IP rumahan, dan fungsi Vercel meneruskan byte-nya. Origin hanya melayani `/api/play` dan `/api/download`, dan hanya untuk request yang membawa kunci bersama.
+
+Error pemutaran yang sampai ke browser hanya berupa kode: `PLAYBACK_BAD_REQUEST`, `PLAYBACK_RANGE_ERROR`, `PLAYBACK_RATE_LIMITED`, `PLAYBACK_SOURCE_UNAVAILABLE`, `PLAYBACK_STREAM_ERROR`. Detailnya ada di log server.
 
 ---
 
 ## Menjalankan secara lokal
 
-Butuh Node.js 18 atau lebih baru.
+Butuh Node.js 20 atau lebih baru.
 
 ```bash
 npm install
-npm start
+npm start          # http://localhost:3000
+npm test
 ```
 
-Buka `http://localhost:3000`.
+Tanpa `ARMUSIC_ORIGIN`, satu proses melakukan semuanya, termasuk mengambil audio sendiri. Itu cara paling gampang untuk mencoba, asal dijalankan dari jaringan rumahan.
 
-Port bisa diganti lewat `PORT`:
+---
 
-```bash
-PORT=8080 npm start
-```
+## Konfigurasi
 
-Tidak ada API key atau file `.env` yang perlu disiapkan.
+| Variabel | Dipakai di | Fungsi |
+| --- | --- | --- |
+| `ARMUSIC_SECRET` | Vercel dan origin, nilainya harus sama | Kunci untuk token id dan gambar. Jangan diganti, atau semua id di library orang berubah |
+| `ARMUSIC_ORIGIN` | Vercel | Alamat origin. Kalau diisi, `/api/play` diteruskan ke sana |
+| `ARMUSIC_ORIGIN_KEY` | Vercel dan origin | Kunci bersama antara keduanya |
+| `ARMUSIC_ROLE=origin` | origin | Origin hanya melayani route audio |
+| `ARMUSIC_PLAY_CHUNK` | origin | Batas byte per respons untuk Range terbuka, default 8 MB |
+| `HOST`, `PORT` | origin | Alamat listen |
+
+Di origin, jalankan Node dengan `--dns-result-order=ipv4first` kalau host-nya tidak punya rute IPv6.
 
 ---
 
 ## Deploy
 
-Repo ini sudah siap untuk Vercel. `api/index.js` membungkus aplikasi Express jadi serverless function, dan `vercel.json` mengarahkan `/api/*` ke sana sementara sisanya dilayani sebagai file statis dari `public/`.
-
 ```bash
 vercel deploy
 ```
 
-Untuk host lain, `npm start` sudah cukup — `server.js` melayani file statis sekaligus API dalam satu proses.
+`api/index.js` membungkus aplikasi Express jadi serverless function, `vercel.json` mengarahkan `/api/*` ke sana dan menyajikan `public/` sebagai file statis dengan header CSP.
 
 ---
 
@@ -86,50 +96,49 @@ Untuk host lain, `npm start` sudah cukup — `server.js` melayani file statis se
 
 | Endpoint | Kegunaan |
 | --- | --- |
-| `GET /api/home` | Rak konten untuk beranda |
-| `GET /api/search?q=` | Pencarian lagu, album, artis, playlist |
+| `GET /api/home` | Rak konten beranda |
+| `GET /api/search?q=` | Pencarian |
 | `GET /api/suggest?q=` | Saran pencarian |
 | `GET /api/browse?id=` | Isi album, playlist, atau artis |
 | `GET /api/charts` | Tangga lagu |
 | `GET /api/moods` | Kategori mood dan genre |
-| `GET /api/next?videoId=` | Antrean lanjutan untuk sebuah lagu |
-| `GET /api/related?browseId=` | Rekomendasi terkait |
-| `GET /api/resolve?url=` | Mengubah tautan YouTube/YT Music jadi id internal |
-| `GET /api/lyrics?title=&artist=&duration=&browseId=` | Lirik, diutamakan yang tersinkron |
-| `GET /api/sponsorblock?videoId=` | Segmen yang bisa dilewati |
-| `GET /api/thumb?url=` | Proxy thumbnail, dibatasi ke domain milik Google |
-| `GET /api/download-start`, `/api/download-progress` | Unduhan lewat layanan pihak ketiga |
+| `GET /api/next?trackId=` | Antrean lanjutan untuk sebuah lagu |
+| `GET /api/related?pageId=` | Rekomendasi terkait |
+| `GET /api/resolve?url=` | Mengubah tautan jadi id |
+| `GET /api/lyrics?title=&artist=&duration=&pageId=` | Lirik, diutamakan yang tersinkron |
+| `GET /api/skips?trackId=` | Bagian yang bisa dilewati |
+| `GET /api/play/:trackId` | Audio, mendukung Range |
+| `GET /api/download/:trackId?name=` | Audio sebagai lampiran |
+| `GET /api/img/:token` | Gambar |
+| `POST /api/img/seal`, `POST /api/id/seal` | Migrasi sekali jalan untuk library lama |
 
 ---
 
 ## Penyimpanan data
 
-Seluruh library tersimpan di `localStorage` browser — tidak ada database, tidak ada akun, dan tidak ada data yang dikirim ke server. Konsekuensinya, data terikat ke satu browser di satu perangkat: membersihkan data situs akan menghapusnya.
+Seluruh library tersimpan di `localStorage` browser. Tidak ada database dan tidak ada akun. Library dari versi lama dimigrasi otomatis saat pertama dibuka: nama field, id, dan alamat gambar diganti ke format sekarang.
 
-Gunakan **Backup** di halaman Library untuk mengunduh seluruh isinya sebagai satu file JSON, dan **Restore** untuk memuatnya kembali di perangkat lain. Restore juga menerima format backup dari versi lama supaya file yang sudah terlanjur diunduh tidak tertolak.
+Gunakan **Backup** di halaman Library untuk mengunduh seluruh isinya sebagai satu file JSON, dan **Restore** untuk memuatnya di perangkat lain. File backup lama tetap diterima.
 
 ---
 
 ## Struktur proyek
 
 ```
-public/
-  index.html      kerangka halaman + sprite ikon SVG
-  app.js          seluruh SPA: router, player, library, UI
-  styles.css      tema dan tata letak (dark + light)
-  logo.svg        brand mark, sumber untuk semua ukuran PNG
-  favicon.svg     ikon tab, sumber untuk favicon PNG
-server.js         Express: file statis + proxy API
-api/index.js      pembungkus serverless untuk Vercel
-vercel.json       konfigurasi build dan routing
+public/              SPA, disajikan apa adanya
+lib/playback/        gateway audio: resolve, stream, range, relay, error
+lib/ids.js           token id
+lib/images.js        token gambar
+lib/ratelimit.js     pembatas request
+server.js            Express: katalog, lirik, dan semua route di atas
+api/index.js         pembungkus serverless untuk Vercel
+test/                node --test
+android/             pembungkus WebView untuk Android
 ```
 
 ---
 
 ## Catatan
 
-- Pemutaran butuh akses ke `youtube.com`. Di jaringan yang memblokirnya, aplikasi tetap terbuka dan metadata tetap muncul, tapi lagu tidak akan berbunyi.
-- Pemutaran di latar belakang bergantung pada platform. Di browser desktop, audio jalan terus saat tab dipindah, dan tombol media di keyboard maupun kontrol sistem berfungsi. Di browser ponsel, mengunci layar atau berpindah aplikasi bisa membuat browser menghentikan pemutar YouTube yang tertanam; aplikasi akan mencoba melanjutkan sendiri, tapi ini tidak selalu bisa ditolak. Gunakan Picture-in-Picture agar pemutaran tetap jalan saat berpindah aplikasi.
-- Kalau dibungkus jadi aplikasi Android, pemutaran latar belakang perlu penyetelan di sisi native, yaitu foreground service dan MediaSession. Itu di luar cakupan repo ini.
-- Aplikasi ini bergantung pada API internal YouTube Music yang tidak berdokumentasi resmi dan bisa berubah sewaktu-waktu tanpa pemberitahuan.
+- Katalog dan sumber audio bergantung pada API pihak ketiga yang tidak berdokumentasi resmi dan bisa berubah kapan saja.
 - Dibuat untuk keperluan pribadi dan pembelajaran.
