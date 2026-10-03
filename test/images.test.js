@@ -52,3 +52,10 @@ test('sealDeep leaves no upstream host anywhere in a response body', () => {
   assert.equal(out.nil, null);
   assert.equal(out.sections[0].items[0].artists[0].browseId, 'UC1');
 });
+
+test('catalogue brand labels are shown under our own name', () => {
+  const out = images.sealDeep({ subtitle: 'Chart • YouTube Charts', a: [{ name: 'YouTube Music' }], b: 'Playlist • YouTube Music • 20 songs', c: 'YouTube' });
+  assert.doesNotMatch(JSON.stringify(out), /youtube/i);
+  assert.equal(out.subtitle, 'Chart • AR Music Charts');
+  assert.equal(out.a[0].name, 'AR Music');
+});
