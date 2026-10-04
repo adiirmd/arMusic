@@ -9,7 +9,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const express = require('express');
-const { streamTrack } = require('../lib/playback/stream');
+const { streamTrack, warmTrack } = require('../lib/playback/stream');
+const blockcache = require('../lib/playback/blockcache');
 
 const SIZE = 3 * 1024 * 1024 + 12345;
 const byteAt = (i) => (i * 31 + 7) & 0xff;
@@ -57,6 +58,7 @@ function fakeUpstream(opts = {}) {
 }
 
 function gateway(upstreamUrl, extra = {}) {
+  blockcache.clear();
   const app = express();
   let resolves = 0;
   const resolve = async () => {
@@ -231,6 +233,7 @@ test('backpressure: a client that stops reading stops the upstream reads', async
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const app = express();
+  blockcache.clear();
   app.get('/p', (req, res) => streamTrack('aaaaaaaaaaa', req, res, {
     resolve: async () => ({ url: `http://127.0.0.1:${server.address().port}/m`, mime: 'audio/mp4', ext: 'm4a', size: big, expiresAt: Date.now() + 1e6 }),
   }));
@@ -269,4 +272,67 @@ test('client disconnect cancels the upstream request', async (t) => {
   ac.abort();
   await new Promise((res) => setTimeout(res, 500));
   assert.ok(closed, 'upstream connection closed after the client went away');
+});
+
+test('second play of the same range comes from memory, not the source', async (t) => {
+  const up = await fakeUpstream();
+  const gw = await gateway(up.url);
+  t.after(() => { up.server.close(); gw.server.close(); });
+  const a = await fetch(`${gw.base}/api/play/aaaaaaaaaaa`, { headers: { Range: 'bytes=0-999999' } });
+  assert.ok((await readAll(a)).equals(expected(0, 999999)));
+  const before = up.stats.requests.length;
+  const b = await fetch(`${gw.base}/api/play/aaaaaaaaaaa`, { headers: { Range: 'bytes=0-524287' } });
+  assert.equal(b.status, 206);
+  assert.ok((await readAll(b)).equals(expected(0, 524287)));
+  assert.equal(up.stats.requests.length, before, 'no new request to the source');
+});
+
+test('a range that starts in memory and runs past it is served whole and exact', async (t) => {
+  const up = await fakeUpstream();
+  const gw = await gateway(up.url);
+  t.after(() => { up.server.close(); gw.server.close(); });
+  await readAll(await fetch(`${gw.base}/api/play/aaaaaaaaaaa`, { headers: { Range: 'bytes=0-524287' } }));
+  up.stats.requests.length = 0;
+  const r = await fetch(`${gw.base}/api/play/aaaaaaaaaaa`, { headers: { Range: 'bytes=1000-2000000' } });
+  assert.equal(r.status, 206);
+  assert.ok((await readAll(r)).equals(expected(1000, 2000000)));
+  assert.deepEqual(up.stats.requests, ['bytes=524288-2000000'], 'only the part not in memory is fetched');
+});
+
+test('cached blocks in the middle are skipped over, not fetched again', async (t) => {
+  const up = await fakeUpstream();
+  const gw = await gateway(up.url);
+  t.after(() => { up.server.close(); gw.server.close(); });
+  await readAll(await fetch(`${gw.base}/api/play/aaaaaaaaaaa`, { headers: { Range: 'bytes=524288-1048575' } }));
+  up.stats.requests.length = 0;
+  const r = await fetch(`${gw.base}/api/play/aaaaaaaaaaa`, { headers: { Range: 'bytes=0-1572863' } });
+  assert.ok((await readAll(r)).equals(expected(0, 1572863)));
+  assert.deepEqual(up.stats.requests, ['bytes=0-524287', 'bytes=1048576-1572863']);
+});
+
+test('warmTrack keeps the opening of a track in memory so play starts from it', async (t) => {
+  const up = await fakeUpstream();
+  const gw = await gateway(up.url);
+  t.after(() => { up.server.close(); gw.server.close(); });
+  const resolve = async () => ({ trackId: 'aaaaaaaaaaa', url: up.url, mime: 'audio/mp4', ext: 'm4a', size: SIZE, expiresAt: Date.now() + 1e6 });
+  const w = await warmTrack('aaaaaaaaaaa', { resolve, bytes: 512 * 1024 });
+  assert.equal(w.cached, true);
+  up.stats.requests.length = 0;
+  const r = await fetch(`${gw.base}/api/play/aaaaaaaaaaa`, { headers: { Range: 'bytes=0-524287' } });
+  assert.ok((await readAll(r)).equals(expected(0, 524287)));
+  assert.equal(up.stats.requests.length, 0);
+  const again = await warmTrack('aaaaaaaaaaa', { resolve, bytes: 512 * 1024 });
+  assert.equal(again.already, true);
+});
+
+test('open ranges end on a block boundary so the next request starts on one', async (t) => {
+  process.env.ARMUSIC_PLAY_CHUNK = '';
+  const up = await fakeUpstream();
+  const gw = await gateway(up.url);
+  t.after(() => { up.server.close(); gw.server.close(); });
+  const r = await fetch(`${gw.base}/api/play/aaaaaaaaaaa`, { headers: { Range: 'bytes=300000-' } });
+  const m = /bytes (\d+)-(\d+)\//.exec(r.headers.get('content-range'));
+  const endPlusOne = Number(m[2]) + 1;
+  assert.ok(endPlusOne === SIZE || endPlusOne % blockcache.BLOCK === 0, `ends at ${endPlusOne}`);
+  await readAll(r);
 });

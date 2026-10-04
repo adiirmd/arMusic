@@ -416,31 +416,44 @@ const PB = {
     a.preload = 'auto';
     a.setAttribute('playsinline', '');
     if (!a.isConnected) document.body.appendChild(a);
-    Player.el = a;
-
-    const set = (st) => {
-      if (this._state === st) return;
-      this._state = st;
-      onPlayerState(st);
-    };
-    a.addEventListener('playing', () => { this._retry = 0; this._clearStall(); set(PS.PLAYING); });
-    a.addEventListener('pause', () => { if (!a.ended) set(PS.PAUSED); });
-    a.addEventListener('progress', () => { this._lastData = Date.now(); });
-    a.addEventListener('loadstart', () => { this._lastData = Date.now(); });
-    a.addEventListener('waiting', () => { if (!a.paused) { set(PS.BUFFERING); this._armStall(); } });
-    a.addEventListener('stalled', () => { if (!a.paused && !this._stallTimer) this._armStall(); });
-    a.addEventListener('ended', () => set(PS.ENDED));
-    a.addEventListener('loadedmetadata', () => {
-      if (this._pendingSeek != null) {
-        const t = this._pendingSeek;
-        this._pendingSeek = null;
-        try { a.currentTime = t; } catch {}
-      }
-    });
-    a.addEventListener('error', () => this._onError());
-
-    a.volume = Math.max(0, Math.min(1, this._vol / 100));
+    this._attach(a);
     Player.ready = true;
+  },
+
+  /* Makes `a` the element that plays. Listeners are bound to the element
+     itself and ignore events once it is no longer the player, so an element
+     that has been swapped out can never move the state. */
+  _attach(a) {
+    Player.el = a;
+    if (!a._pbBound) {
+      a._pbBound = true;
+      const mine = () => Player.el === a;
+      const set = (st) => {
+        if (!mine() || this._state === st) return;
+        this._state = st;
+        onPlayerState(st);
+      };
+      a.addEventListener('playing', () => { if (!mine()) return; this._retry = 0; this._clearStall(); set(PS.PLAYING); });
+      a.addEventListener('pause', () => { if (mine() && !a.ended) set(PS.PAUSED); });
+      a.addEventListener('progress', () => { if (mine()) this._lastData = Date.now(); });
+      a.addEventListener('loadstart', () => { if (mine()) this._lastData = Date.now(); });
+      a.addEventListener('waiting', () => { if (mine() && !a.paused) { set(PS.BUFFERING); this._armStall(); } });
+      a.addEventListener('stalled', () => { if (mine() && !a.paused && !this._stallTimer) this._armStall(); });
+      a.addEventListener('ended', () => set(PS.ENDED));
+      a.addEventListener('timeupdate', () => { if (mine()) maybePreloadNext(); });
+      a.addEventListener('loadedmetadata', () => {
+        if (!mine()) return;
+        if (this._pendingSeek != null) {
+          const t = this._pendingSeek;
+          this._pendingSeek = null;
+          try { a.currentTime = t; } catch {}
+        }
+      });
+      a.addEventListener('error', () => { if (mine()) this._onError(); });
+    }
+    a.id = 'audio-player';
+    a.muted = this._muted;
+    a.volume = Math.max(0, Math.min(1, this._vol / 100));
   },
 
   _clearStall() { clearTimeout(this._stallTimer); this._stallTimer = null; },
@@ -487,11 +500,27 @@ const PB = {
 
   load(trackId, { start = 0, autoplay = true, keepRetry = false } = {}) {
     this.init();
-    const a = Player.el;
     if (!keepRetry) this._retry = 0;
     this._clearStall();
     this._pendingSeek = start > 0 ? start : null;
-    a.src = playUrl(trackId);
+    // the next song may already be loaded in the silent element
+    const ready = !start ? Preload.take(trackId) : null;
+    if (ready) {
+      const old = Player.el;
+      try { old.pause(); } catch {}
+      this._attach(ready);
+      try { ready.currentTime = 0; } catch {}
+      if (old && old !== ready) {
+        try { old.removeAttribute('src'); old.load(); } catch {}
+        old.removeAttribute('id');
+        Preload.el = old; // the old element becomes the next silent one
+        old.muted = true;
+        old.style.display = 'none';
+      }
+    } else {
+      Player.el.src = playUrl(trackId);
+    }
+    const a = Player.el;
     a.playbackRate = Player.speed || 1;
     a.defaultPlaybackRate = Player.speed || 1;
     if (autoplay) {
@@ -501,6 +530,8 @@ const PB = {
       this._state = PS.CUED;
       try { a.load(); } catch {}
     }
+    preloadFor = null;
+    setTimeout(warmAhead, ready ? 500 : 2500);
   },
   cue(trackId) {
     this.init();
@@ -512,6 +543,7 @@ const PB = {
     try { a.load(); } catch {}
     a.dataset.cued = trackId;
     this._state = PS.CUED;
+    warmTrack(trackId);
   },
   state() { return this._state; },
   time() {
@@ -565,6 +597,146 @@ const PB = {
     a.defaultPlaybackRate = r;
   },
 };
+
+/* ---------- getting the next song ready ----------
+ *
+ * Two layers, both aimed at the same thing: pressing play, or a song ending,
+ * should start the next one with no wait.
+ *
+ *   - warmTrack asks the server to have a track ready: resolved, and its first
+ *     seconds in memory. Cheap for the page (one tiny request). Used for the
+ *     next song in the queue, for the song after that, and for a song the
+ *     pointer rests on or a finger presses.
+ *
+ *   - The next song in the queue is also loaded into a second, silent audio
+ *     element once the current one has played a while, so its first seconds
+ *     are already in this browser. When the current song ends, that element
+ *     becomes the player and simply starts: no request, no wait.
+ */
+const warmed = new Map(); // trackId -> time asked
+const WARM_TTL_MS = 10 * 60 * 1000;
+function warmTrack(trackId) {
+  if (!trackId || !navigator.onLine) return;
+  const t = warmed.get(trackId);
+  if (t && Date.now() - t < WARM_TTL_MS) return;
+  warmed.set(trackId, Date.now());
+  if (warmed.size > 200) warmed.delete(warmed.keys().next().value);
+  const q = Player.hq && CAN_WEBM ? '?q=hi' : '';
+  try {
+    fetch('/api/warm/' + encodeURIComponent(trackId) + q, { method: 'POST', keepalive: true, priority: 'low' }).catch(() => {});
+  } catch {}
+}
+
+/* Index of the song that will play after the current one, without changing
+   anything. Mirrors nextTrack: songs queued by hand first, then the queue in
+   order, with shuffle the bag decides at the time so it is left out here. */
+function peekNextIndex() {
+  if (!Player.queue.length || Player.index < 0) return -1;
+  if (Player.repeat === 2) return Player.index;
+  const userNext = Player.queue.findIndex((q, i) => i > Player.index && q._user);
+  if (userNext >= 0) return userNext;
+  if (Player.shuffle) return -1;
+  const ni = Player.index + 1;
+  if (ni < Player.queue.length) return ni;
+  return Player.repeat === 1 ? 0 : -1;
+}
+
+function warmAhead() {
+  const ni = peekNextIndex();
+  if (ni >= 0 && Player.queue[ni]) warmTrack(Player.queue[ni].trackId);
+  if (!Player.shuffle) {
+    const after = Player.queue[ni + 1];
+    if (ni >= 0 && after) setTimeout(() => warmTrack(after.trackId), 4000);
+  }
+}
+
+/* The silent second element. */
+const Preload = {
+  el: null,
+  trackId: null,
+  url: null,
+  get() {
+    if (!this.el) {
+      const a = document.createElement('audio');
+      a.preload = 'auto';
+      a.muted = true;
+      a.setAttribute('playsinline', '');
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      this.el = a;
+    }
+    return this.el;
+  },
+  prepare(trackId) {
+    if (!trackId || !navigator.onLine) return;
+    const url = playUrl(trackId);
+    if (this.trackId === trackId && this.url === url) return;
+    const a = this.get();
+    this.trackId = trackId;
+    this.url = url;
+    a.src = url;
+    try { a.load(); } catch {}
+  },
+  /* Hands the loaded element over if it holds this track. */
+  take(trackId) {
+    if (!this.el || this.trackId !== trackId || this.url !== playUrl(trackId)) return null;
+    if (this.el.readyState < 2) return null;
+    const a = this.el;
+    this.el = null;
+    this.trackId = null;
+    this.url = null;
+    return a;
+  },
+  reset() {
+    if (!this.el) return;
+    try { this.el.removeAttribute('src'); this.el.load(); } catch {}
+    this.trackId = null;
+    this.url = null;
+  },
+};
+
+/* Once the current song is safely under way, start on the next one. Waits
+   until the current song's own buffer is comfortable so the two never fight
+   over a slow connection. */
+let preloadFor = null;
+function maybePreloadNext() {
+  const a = Player.el;
+  const cur = Player.current;
+  if (!a || !cur || Player.cued || a.paused) return;
+  if (preloadFor === cur.trackId + ':' + Player.index) return;
+  const dur = a.duration;
+  if (!Number.isFinite(dur) || dur <= 0) return;
+  const b = a.buffered;
+  const ahead = b.length ? b.end(b.length - 1) - a.currentTime : 0;
+  const nearEnd = dur - a.currentTime < 45;
+  if (a.currentTime < 8 && !nearEnd) return;
+  if (ahead < 30 && !(b.length && b.end(b.length - 1) >= dur - 0.5) && !nearEnd) return;
+  const ni = peekNextIndex();
+  const next = ni >= 0 && ni !== Player.index ? Player.queue[ni] : null;
+  if (!next) return;
+  preloadFor = cur.trackId + ':' + Player.index;
+  Preload.prepare(next.trackId);
+}
+
+/* Hover on a pointer device, or the first touch on a phone, means someone is
+   about to press: get that song ready during the moment it takes. */
+function bindIntentWarm(root) {
+  const pick = (e) => {
+    const row = e.target.closest && e.target.closest('[data-item]');
+    if (!row) return;
+    try {
+      const it = JSON.parse(row.dataset.item);
+      if (it && it.trackId) warmTrack(it.trackId);
+    } catch {}
+  };
+  let hoverTimer = null;
+  root.addEventListener('pointerover', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => pick(e), 120);
+  }, { passive: true });
+  root.addEventListener('pointerdown', pick, { passive: true });
+}
 
 /* "3:41" or "1:02:03" to seconds, for showing a length before the element
    knows it. */
@@ -1557,6 +1729,8 @@ function updateQueueTab() {
 function renderQueue() {
   updateQueueTab();
   persistQueue();
+  // the queue may have changed what plays next; look again
+  preloadFor = null;
   const el = $('#queue-list');
   if (!el) return;
   if (!Player.queue.length) {
@@ -4421,4 +4595,7 @@ async function migrateStoredData() {
 
 restoreQueue();
 migrateStoredData();
+bindIntentWarm(document);
 route();
+// a change in the queue may change what plays next
+window.addEventListener('online', () => { warmed.clear(); warmAhead(); });

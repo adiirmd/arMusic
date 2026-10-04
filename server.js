@@ -18,7 +18,9 @@ app.use(express.json({ limit: '256kb' }));
    is served except the two audio routes, and those only with the key. */
 if (process.env.ARMUSIC_ROLE === 'origin') {
   app.use((req, res, next) => {
-    if (/^\/api\/(play|download)\//.test(req.path)) return next();
+    // lets the relay tell an answer from the origin apart from a proxy's own
+    res.setHeader('X-ARMusic-Origin', '1');
+    if (/^\/api\/(play|download|warm)\//.test(req.path) || req.path === '/api/health') return next();
     res.status(404).end();
   });
 }
@@ -29,6 +31,37 @@ app.use('/api', (req, res, next) => {
   next();
 });
 app.use('/api', ids.openQuery);
+
+/* Catalogue answers are cached at the CDN edge. stale-while-revalidate means
+   a listener is answered from the edge at once even when the entry has aged;
+   the refresh happens behind them. Only successful GETs are cached, and only
+   on the routes listed, each for as long as its content stays meaningful.
+   The language (hl) is part of the address, so each language caches apart. */
+const EDGE_TTL = {
+  '/api/home': [600, 3600],
+  '/api/charts': [1800, 7200],
+  '/api/moods': [86400, 604800],
+  '/api/search': [600, 3600],
+  '/api/suggest': [3600, 86400],
+  '/api/browse': [3600, 86400],
+  '/api/next': [1800, 7200],
+  '/api/related': [3600, 86400],
+  '/api/lyrics': [86400, 604800],
+  '/api/skips': [86400, 604800],
+};
+app.use('/api', (req, res, next) => {
+  const ttl = req.method === 'GET' && EDGE_TTL['/api' + req.path];
+  if (ttl) {
+    const json = res.json.bind(res);
+    res.json = (body) => {
+      if (res.statusCode === 200 && !res.getHeader('Cache-Control')) {
+        res.setHeader('Cache-Control', `public, max-age=60, s-maxage=${ttl[0]}, stale-while-revalidate=${ttl[1]}`);
+      }
+      return json(body);
+    };
+  }
+  next();
+});
 
 /* Pages and scripts may only reach this origin, nothing else. */
 const CSP = [
