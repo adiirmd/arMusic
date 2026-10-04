@@ -371,6 +371,39 @@ const CAN_WEBM = (() => {
 const EDGE = 'https://stream.adiirmd.my.id';
 const Edge = { failedAt: 0 };
 function edgeUsable() { return Date.now() - Edge.failedAt > 90000; }
+
+/* Keeps the connection to the media edge open.
+ *
+ * Opening a connection is the slow part, not the answer: measured from a home
+ * line, a new connection costs 0.3 to 0.8 s (the provider holds every new
+ * web connection for about 300 ms, then TLS), while a request on an open one
+ * is answered in about 60 ms. Browsers drop an idle connection after about
+ * ten seconds, so without this the click that starts a song usually paid
+ * for a new one. A tiny request every few seconds while the page is in use
+ * keeps it open, and one is sent at once when a finger or pointer comes
+ * near a song.
+ *
+ * The request is made the way the audio element makes its own (no-cors,
+ * with credentials), so both share the same connection. */
+const EdgeLink = {
+  last: 0,
+  timer: null,
+  touch(force = false) {
+    if (!edgeUsable() || !navigator.onLine || Backup.on) return;
+    const now = Date.now();
+    if (!force && now - this.last < 4000) return;
+    this.last = now;
+    try { fetch(EDGE + '/health', { mode: 'no-cors', credentials: 'include', cache: 'no-store', priority: 'high' }).catch(() => {}); } catch {}
+  },
+  start() {
+    clearInterval(this.timer);
+    this.timer = setInterval(() => {
+      // only while someone is using the page: visible, or playing
+      if (document.visibilityState === 'visible' || (Player.el && !Player.el.paused)) this.touch();
+    }, 7000);
+    this.touch(true);
+  },
+};
 function playUrl(trackId) {
   const path = '/play/' + encodeURIComponent(trackId) + (Player.hq && CAN_WEBM ? '?q=hi' : '');
   return edgeUsable() ? EDGE + path : '/api' + path;
@@ -1014,6 +1047,7 @@ function bindIntentWarm(root) {
   const pick = (e) => {
     const row = e.target.closest && e.target.closest('[data-item]');
     if (!row) return;
+    EdgeLink.touch();
     try {
       const it = JSON.parse(row.dataset.item);
       if (it && it.trackId) warmTrack(it.trackId);
@@ -4887,6 +4921,8 @@ async function migrateStoredData() {
 restoreQueue();
 migrateStoredData();
 bindIntentWarm(document);
+EdgeLink.start();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') EdgeLink.touch(true); });
 if (rowObserver) new MutationObserver(watchRows).observe(document.getElementById('main') || document.body, { childList: true, subtree: true });
 route();
 watchRows();
