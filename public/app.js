@@ -860,7 +860,7 @@ const warmed = new Map(); // trackId -> time asked
 const WARM_TTL_MS = 10 * 60 * 1000;
 const warmQueue = [];
 let warmBusy = 0;
-const WARM_PARALLEL = 3;
+const WARM_PARALLEL = 5;
 /* urgent: the next song, or a song the pointer or a finger is on. Those jump
    the queue; songs merely visible on screen wait their turn. */
 function warmTrack(trackId, urgent = true) {
@@ -869,19 +869,25 @@ function warmTrack(trackId, urgent = true) {
   if (t && Date.now() - t < WARM_TTL_MS) return;
   warmed.set(trackId, Date.now());
   if (warmed.size > 400) warmed.delete(warmed.keys().next().value);
-  if (urgent) warmQueue.unshift(trackId); else warmQueue.push(trackId);
+  if (urgent) { sendWarm(trackId, false); return; }
+  warmQueue.push(trackId);
   if (warmQueue.length > 40) warmQueue.length = 40;
   pumpWarm();
+}
+/* urgent ones go out at once, outside the limit, so a song someone is
+   reaching for never waits behind songs that are merely on screen */
+function sendWarm(id, counted) {
+  const q = Player.hq && CAN_WEBM ? '?q=hi' : '';
+  const url = edgeUsable() ? EDGE + '/warm/' + encodeURIComponent(id) + q : '/api/warm/' + encodeURIComponent(id) + q;
+  let p;
+  try { p = fetch(url, { method: 'POST', priority: counted ? 'low' : 'high', cache: 'no-store' }); } catch { p = Promise.reject(); }
+  return p.catch(() => {});
 }
 function pumpWarm() {
   while (warmBusy < WARM_PARALLEL && warmQueue.length) {
     const id = warmQueue.shift();
     warmBusy++;
-    const q = Player.hq && CAN_WEBM ? '?q=hi' : '';
-    const url = edgeUsable() ? EDGE + '/warm/' + encodeURIComponent(id) + q : '/api/warm/' + encodeURIComponent(id) + q;
-    let p;
-    try { p = fetch(url, { method: 'POST', priority: 'low', cache: 'no-store' }); } catch { p = Promise.reject(); }
-    p.catch(() => {}).finally(() => { warmBusy--; pumpWarm(); });
+    sendWarm(id, true).finally(() => { warmBusy--; pumpWarm(); });
   }
 }
 
