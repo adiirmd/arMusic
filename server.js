@@ -73,8 +73,8 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
   "img-src 'self' data: blob:",
-  "media-src 'self' blob:",
-  "connect-src 'self'",
+  "media-src 'self' blob: https://stream.adiirmd.my.id",
+  "connect-src 'self' https://stream.adiirmd.my.id",
   "frame-src https://www.youtube.com",
   "worker-src 'none'",
   "object-src 'none'",
@@ -936,5 +936,10 @@ const PORT = process.env.PORT || 3000;
 if (require.main === module) {
   const HOST = process.env.HOST || '0.0.0.0';
   app.listen(PORT, HOST, () => console.log(`AR Music running on ${HOST}:${PORT}`));
+  // the origin's direct public edge, reached through the tunnel
+  if (process.env.ARMUSIC_ROLE === 'origin' && process.env.ARMUSIC_EDGE_PORT) {
+    const { createEdgeApp } = require('./lib/playback/edge');
+    createEdgeApp().listen(Number(process.env.ARMUSIC_EDGE_PORT), '127.0.0.1', () => console.log(`edge on 127.0.0.1:${process.env.ARMUSIC_EDGE_PORT}`));
+  }
 }
 module.exports = app;

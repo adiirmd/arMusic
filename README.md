@@ -46,6 +46,8 @@ Browser hanya pernah bicara dengan domain AR Music. Tidak ada iframe, script, ga
 - **Siap sebelum ditekan.** Lagu berikutnya di antrean disiapkan di server (`/api/warm`), dan setelah lagu yang sedang jalan cukup aman buffernya, lagu berikutnya juga dimuat diam diam di elemen audio kedua. Begitu lagu habis, elemen itu langsung jadi pemutar. Lagu yang disorot mouse atau disentuh juga disiapkan duluan.
 - **Cache.** Origin menyimpan potongan audio 256 KB di memori (LRU, dibatasi `ARMUSIC_CACHE_MB`), diisi sambil streaming jadi tidak pernah membuat pendengar menunggu. Putar ulang, seek mundur, dan lagu yang sudah disiapkan dilayani dari situ. Jawaban katalog di-cache di CDN dengan `stale-while-revalidate`, gambar dan font di-cache lama di browser.
 - **Koneksi.** Vercel memakai ulang koneksi ke origin (keep alive), sesi dan token sumber diperbarui di belakang layar sebelum habis, dan `ARMUSIC_ORIGIN` boleh berisi beberapa alamat yang dicoba bergantian kalau satu gagal.
+- **Jalur langsung ke server media.** Audio diambil dari `stream.adiirmd.my.id`, pintu publik origin lewat Cloudflare Tunnel (edge Singapura), bukan lewat function Vercel yang harus memutar ke relay Tailscale di Tokyo. Byte pertama turun dari 1 sampai 2 detik ke sekitar 0,2 detik. Pintu ini sempit: hanya `/play`, `/download`, `/warm` dengan token tersegel, CORS hanya untuk situs. Kalau jalur ini gagal untuk seorang pendengar, halaman pakai `/api/play` lewat Vercel.
+- **Lagu yang terlihat sudah siap.** Lagu yang muncul di layar disiapkan bertahap di server, dan lagu yang sedang diputar ditarik utuh ke memori di belakang layar, jadi lompat ke detik mana pun dijawab dari memori.
 - **Cadangan kalau server media mati.** Kalau origin tidak bisa dihubungi, halaman pindah ke pemutar embed publik supaya musik tetap jalan, mulai dari detik yang sama. Id publik lagu hanya diberikan oleh `/api/fallback` selama origin mati; selama origin hidup jawabannya 409 dan halaman tidak memuat apa pun dari luar. Halaman mengecek tiap 30 detik, dan begitu origin kembali, lagu berikutnya diputar lewat gateway lagi. Selama mode cadangan, unduhan berhenti sementara.
 - **Id** yang diterima browser adalah token terenkripsi (AES, deterministik), bukan id asli dari katalog.
 - **Gambar** dikirim sebagai `/api/img/<token>`, alamat aslinya terenkripsi dan hanya dibuka di server.
@@ -81,6 +83,8 @@ Tanpa `ARMUSIC_ORIGIN`, satu proses melakukan semuanya, termasuk mengambil audio
 | `ARMUSIC_ROLE=origin` | origin | Origin hanya melayani route audio |
 | `ARMUSIC_PLAY_CHUNK` | origin | Batas byte per respons untuk Range terbuka, default 8 MB |
 | `ARMUSIC_CACHE_MB` | origin | Batas memori cache audio, default 160 |
+| `ARMUSIC_EDGE_PORT` | origin | Port pintu publik untuk tunnel (localhost saja) |
+| `ARMUSIC_FILL` | origin | `0` mematikan penarikan lagu utuh ke memori |
 | `ARMUSIC_WARM_BYTES` | origin | Seberapa banyak awal lagu yang disiapkan, default 512 KB |
 | `HOST`, `PORT` | origin | Alamat listen |
 

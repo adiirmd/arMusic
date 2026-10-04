@@ -363,8 +363,17 @@ const Player = {
 const CAN_WEBM = (() => {
   try { return !!document.createElement('audio').canPlayType('audio/webm; codecs="opus"'); } catch { return false; }
 })();
+/* Audio comes from the media server's own edge when it can, since that path
+   is far shorter than going through the site's function (about 0.2 s to the
+   first byte instead of 1 to 2 s). If the edge fails for this listener, the
+   site's own /api path is used for a while, and if the media server is down
+   altogether the backup player takes over. */
+const EDGE = 'https://stream.adiirmd.my.id';
+const Edge = { failedAt: 0 };
+function edgeUsable() { return Date.now() - Edge.failedAt > 90000; }
 function playUrl(trackId) {
-  return '/api/play/' + encodeURIComponent(trackId) + (Player.hq && CAN_WEBM ? '?q=hi' : '');
+  const path = '/play/' + encodeURIComponent(trackId) + (Player.hq && CAN_WEBM ? '?q=hi' : '');
+  return edgeUsable() ? EDGE + path : '/api' + path;
 }
 
 function updateQualityButton() {
@@ -472,13 +481,16 @@ const PB = {
       return b.length ? b.end(b.length - 1) : 0;
     };
     const was = mark();
+    // nothing at all has come yet for this load: give up on the path sooner
+    const quiet = a.readyState < 2 ? 6000 : 20000;
     this._stallTimer = setTimeout(() => {
       if (!a || a.paused || !Player.current || !Player.wantPlaying) return;
       // still receiving: either a progress event or the buffer grew
-      if (Date.now() - this._lastData < 20000 || mark() > was) { this._armStall(); return; }
+      if (Date.now() - this._lastData < quiet || mark() > was) { this._armStall(); return; }
       if (this._retry >= 2) { this._failOver(a.currentTime || 0, () => {}); return; }
+      if ((a.getAttribute('src') || '').startsWith(EDGE)) Edge.failedAt = Date.now();
       this._reloadAt(a.currentTime);
-    }, 20000);
+    }, quiet);
   },
   _reloadAt(t) {
     if (!Player.current) return;
@@ -489,6 +501,22 @@ const PB = {
     const a = Player.el;
     if (!a || !a.getAttribute('src')) return;
     const err = a.error;
+    // the edge did not work for this listener: same song, same second,
+    // through the site instead
+    // The edge failed. Either the media server is down (then the backup
+    // takes over) or only this path is broken for this listener (then the
+    // same song carries on through the site from the same second).
+    if (a.getAttribute('src').startsWith(EDGE) && Player.current) {
+      Edge.failedAt = Date.now();
+      const at = a.currentTime || this._pendingSeek || 0;
+      const id = Player.current.trackId;
+      this._failOver(at, () => {
+        if (Player.current && Player.current.trackId === id) {
+          this.load(id, { start: at, autoplay: Player.wantPlaying !== false, keepRetry: true });
+        }
+      });
+      return;
+    }
     // A network error partway through is usually transient: try again from
     // the same point, twice, before calling the track unavailable.
     if (err && err.code === 2 && this._retry < 2 && Player.current) {
@@ -727,7 +755,7 @@ const Backup = {
      reached at all, in which case the backup cannot help either). */
   async ask(trackId) {
     try {
-      const r = await fetch('/api/fallback/' + encodeURIComponent(trackId), { cache: 'no-store' });
+      const r = await fetch('/api/fallback/' + encodeURIComponent(trackId) + '?fresh=1', { cache: 'no-store' });
       if (r.status !== 200) return null;
       const j = await r.json();
       return j && typeof j.v === 'string' ? j.v : null;
@@ -787,7 +815,7 @@ const Backup = {
       if (!this.on) { clearInterval(this._probe); return; }
       try {
         const r = await fetch('/api/health', { cache: 'no-store' });
-        if (r.ok) this.gatewayBack = true;
+        if (r.ok) { this.gatewayBack = true; Edge.failedAt = 0; }
       } catch {}
     }, 30000);
   },
@@ -830,16 +858,57 @@ const Backup = {
  */
 const warmed = new Map(); // trackId -> time asked
 const WARM_TTL_MS = 10 * 60 * 1000;
-function warmTrack(trackId) {
+const warmQueue = [];
+let warmBusy = 0;
+const WARM_PARALLEL = 3;
+/* urgent: the next song, or a song the pointer or a finger is on. Those jump
+   the queue; songs merely visible on screen wait their turn. */
+function warmTrack(trackId, urgent = true) {
   if (!trackId || !navigator.onLine || Backup.on) return;
   const t = warmed.get(trackId);
   if (t && Date.now() - t < WARM_TTL_MS) return;
   warmed.set(trackId, Date.now());
-  if (warmed.size > 200) warmed.delete(warmed.keys().next().value);
-  const q = Player.hq && CAN_WEBM ? '?q=hi' : '';
-  try {
-    fetch('/api/warm/' + encodeURIComponent(trackId) + q, { method: 'POST', keepalive: true, priority: 'low' }).catch(() => {});
-  } catch {}
+  if (warmed.size > 400) warmed.delete(warmed.keys().next().value);
+  if (urgent) warmQueue.unshift(trackId); else warmQueue.push(trackId);
+  if (warmQueue.length > 40) warmQueue.length = 40;
+  pumpWarm();
+}
+function pumpWarm() {
+  while (warmBusy < WARM_PARALLEL && warmQueue.length) {
+    const id = warmQueue.shift();
+    warmBusy++;
+    const q = Player.hq && CAN_WEBM ? '?q=hi' : '';
+    const url = edgeUsable() ? EDGE + '/warm/' + encodeURIComponent(id) + q : '/api/warm/' + encodeURIComponent(id) + q;
+    let p;
+    try { p = fetch(url, { method: 'POST', priority: 'low', cache: 'no-store' }); } catch { p = Promise.reject(); }
+    p.catch(() => {}).finally(() => { warmBusy--; pumpWarm(); });
+  }
+}
+
+/* Songs that come into view get ready in the background, so pressing one
+   finds it waiting. Each row is looked at once. */
+const seenRows = new WeakSet();
+const rowObserver = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    rowObserver.unobserve(e.target);
+    try {
+      const it = JSON.parse(e.target.dataset.item);
+      if (it && it.trackId) warmTrack(it.trackId, false);
+    } catch {}
+  }
+}, { rootMargin: '0px 0px 120px 0px' }) : null;
+let rowScan = null;
+function watchRows() {
+  if (!rowObserver) return;
+  clearTimeout(rowScan);
+  rowScan = setTimeout(() => {
+    document.querySelectorAll('[data-item]').forEach((el) => {
+      if (seenRows.has(el)) return;
+      seenRows.add(el);
+      rowObserver.observe(el);
+    });
+  }, 400);
 }
 
 /* Index of the song that will play after the current one, without changing
@@ -4812,6 +4881,8 @@ async function migrateStoredData() {
 restoreQueue();
 migrateStoredData();
 bindIntentWarm(document);
+if (rowObserver) new MutationObserver(watchRows).observe(document.getElementById('main') || document.body, { childList: true, subtree: true });
 route();
+watchRows();
 // a change in the queue may change what plays next
 window.addEventListener('online', () => { warmed.clear(); warmAhead(); });
