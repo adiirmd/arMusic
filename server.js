@@ -63,16 +63,19 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-/* Pages and scripts may only reach this origin, nothing else. */
+/* Pages and scripts may only reach this origin. The one exception is the
+   backup player: when the media origin is down, the page loads the public
+   embedded player, so its script and frame are allowed. Nothing loads them
+   while the origin is up. */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://www.youtube.com",
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self'",
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",
   "connect-src 'self'",
-  "frame-src 'none'",
+  "frame-src https://www.youtube.com",
   "worker-src 'none'",
   "object-src 'none'",
   "base-uri 'self'",

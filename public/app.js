@@ -429,7 +429,8 @@ const PB = {
       a._pbBound = true;
       const mine = () => Player.el === a;
       const set = (st) => {
-        if (!mine() || this._state === st) return;
+        // once the backup has taken over, this element no longer speaks
+        if (!mine() || Backup.on || this._state === st) return;
         this._state = st;
         onPlayerState(st);
       };
@@ -475,7 +476,7 @@ const PB = {
       if (!a || a.paused || !Player.current || !Player.wantPlaying) return;
       // still receiving: either a progress event or the buffer grew
       if (Date.now() - this._lastData < 20000 || mark() > was) { this._armStall(); return; }
-      if (this._retry >= 2) return;
+      if (this._retry >= 2) { this._failOver(a.currentTime || 0, () => {}); return; }
       this._reloadAt(a.currentTime);
     }, 20000);
   },
@@ -495,11 +496,45 @@ const PB = {
       return;
     }
     this._state = PS.UNSTARTED;
-    onPlayerError(err ? err.code : 0);
+    this._failOver(a.currentTime || 0, () => onPlayerError(err ? err.code : 0));
+  },
+  /* The gateway could not play this. Before calling the song unavailable,
+     ask whether the media server is down; if it is, the backup takes over
+     from the same second. */
+  _failOver(at, otherwise) {
+    const s = Player.current;
+    if (!s) return otherwise();
+    const id = s.trackId;
+    const want = Player.wantPlaying !== false;
+    this._state = PS.BUFFERING;
+    onPlayerState(PS.BUFFERING);
+    Backup.start(id, { start: at, autoplay: want }).then((ok) => {
+      if (!ok && Player.current && Player.current.trackId === id) {
+        this._state = PS.UNSTARTED;
+        otherwise();
+      }
+    });
   },
 
   load(trackId, { start = 0, autoplay = true, keepRetry = false } = {}) {
     this.init();
+    if (Backup.on) {
+      // stay on the backup until the gateway has been seen answering again
+      if (!Backup.gatewayBack) {
+        this._state = PS.BUFFERING;
+        Backup.start(trackId, { start, autoplay }).then((ok) => {
+          if (ok || !Player.current || Player.current.trackId !== trackId) return;
+          // the site says the gateway is up after all
+          Backup.leave();
+          Backup.gatewayBack = false;
+          this.load(trackId, { start, autoplay });
+        });
+        return;
+      }
+      Backup.leave();
+      Backup.gatewayBack = false;
+      toast(tr('toast.backupOff'));
+    }
     if (!keepRetry) this._retry = 0;
     this._clearStall();
     this._pendingSeek = start > 0 ? start : null;
@@ -535,6 +570,7 @@ const PB = {
   },
   cue(trackId) {
     this.init();
+    if (Backup.on) { try { Backup.yt && Backup.yt.stopVideo(); } catch {} Backup._state = PS.CUED; }
     const a = Player.el;
     this._clearStall();
     this._pendingSeek = null;
@@ -585,10 +621,12 @@ const PB = {
   volume(v) {
     this._vol = Math.max(0, Math.min(100, Number(v) || 0));
     if (Player.el) Player.el.volume = this._vol / 100;
+    Backup.applyVolume();
   },
   mute(on) {
     this._muted = !!on;
     if (Player.el) Player.el.muted = this._muted;
+    Backup.applyVolume();
   },
   rate(r) {
     const a = Player.el;
@@ -596,6 +634,183 @@ const PB = {
     a.playbackRate = r;
     a.defaultPlaybackRate = r;
   },
+};
+
+/* While the backup player is in use, the transport calls go to it. */
+for (const k of ['state', 'time', 'duration', 'seek', 'play', 'pause', 'rate']) {
+  const own = PB[k].bind(PB);
+  PB[k] = (...args) => (Backup.on && Backup.yt ? Backup[k](...args) : own(...args));
+}
+
+/* ---------- backup player ----------
+ *
+ * Normally every song plays through this site's own gateway, and the page
+ * never talks to anyone else. The gateway depends on a media server that can
+ * go down (power, internet at home). When it does, the page falls back to
+ * the public embedded player so music keeps playing, and goes back to the
+ * gateway as soon as the media server answers again.
+ *
+ * The switch is decided by the site: /api/fallback hands out what the
+ * embedded player needs only while the media server is unreachable. While it
+ * is up the answer is 409 and nothing is loaded from anywhere else.
+ *
+ * The embedded player's state numbers are the same as PS, so it plugs into
+ * PB without translation. */
+const Backup = {
+  on: false,
+  since: 0,
+  yt: null,
+  ready: null,
+  vid: null,
+  _state: PS.UNSTARTED,
+  _probe: null,
+
+  /* Loads the embedded player once, on first need. */
+  boot() {
+    if (this.ready) return this.ready;
+    this.ready = new Promise((resolve, reject) => {
+      let holder = document.getElementById('bk-holder');
+      if (!holder) {
+        holder = document.createElement('div');
+        holder.id = 'bk-holder';
+        holder.innerHTML = '<div id="bk-player"></div>';
+        document.body.appendChild(holder);
+      }
+      const make = () => {
+        this.yt = new window.YT.Player('bk-player', {
+          height: '200', width: '200',
+          host: 'https://www.youtube.com',
+          playerVars: { playsinline: 1, controls: 0, disablekb: 1, origin: location.origin, rel: 0, iv_load_policy: 3, fs: 0 },
+          events: {
+            onReady: () => {
+              try {
+                const f = this.yt.getIframe();
+                if (f) f.setAttribute('allow', 'autoplay; encrypted-media');
+              } catch {}
+              this.applyVolume();
+              resolve(this.yt);
+            },
+            onStateChange: (e) => {
+              if (!this.on) return;
+              if (e.data === PS.ENDED) {
+                // a stale ended from the song before must not skip this one
+                try {
+                  const v = this.yt.getVideoData().video_id;
+                  if (v && v !== this.vid) return;
+                } catch {}
+              }
+              if (this._state === e.data) return;
+              this._state = e.data;
+              onPlayerState(e.data);
+            },
+            onError: () => {
+              if (!this.on) return;
+              this._state = PS.UNSTARTED;
+              onPlayerError();
+            },
+          },
+        });
+      };
+      if (window.YT && window.YT.Player) return make();
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { if (prev) try { prev(); } catch {} make(); };
+      const sc = document.createElement('script');
+      sc.src = 'https://www.youtube.com/iframe_api';
+      sc.onerror = () => { this.ready = null; reject(new Error('backup player failed to load')); };
+      document.head.appendChild(sc);
+    });
+    return this.ready;
+  },
+
+  /* Asks the site whether to use the backup for this track. Resolves to the
+     public id when yes, null when the gateway is up (or the site cannot be
+     reached at all, in which case the backup cannot help either). */
+  async ask(trackId) {
+    try {
+      const r = await fetch('/api/fallback/' + encodeURIComponent(trackId), { cache: 'no-store' });
+      if (r.status !== 200) return null;
+      const j = await r.json();
+      return j && typeof j.v === 'string' ? j.v : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async start(trackId, { start = 0, autoplay = true } = {}) {
+    const v = await this.ask(trackId);
+    if (!v) return false;
+    // the song may have changed while asking
+    if (!Player.current || Player.current.trackId !== trackId) return true;
+    try { await this.boot(); } catch { return false; }
+    if (!Player.current || Player.current.trackId !== trackId) return true;
+    this.enter();
+    this.vid = v;
+    this._state = PS.BUFFERING;
+    try {
+      if (autoplay) this.yt.loadVideoById({ videoId: v, startSeconds: start || 0 });
+      else this.yt.cueVideoById({ videoId: v, startSeconds: start || 0 });
+      this.yt.setPlaybackRate(Player.speed || 1);
+    } catch { return false; }
+    return true;
+  },
+
+  enter() {
+    if (this.on) return;
+    this.on = true;
+    this.since = Date.now();
+    document.body.classList.add('backup-mode');
+    // the gateway element goes quiet
+    const a = Player.el;
+    if (a) { try { a.pause(); a.removeAttribute('src'); a.load(); } catch {} }
+    Preload.reset();
+    toast(tr('toast.backupOn'));
+    this.watch();
+  },
+
+  /* Back to the gateway. The song that is playing carries on in the backup
+     player; the change happens at the next song. */
+  leave() {
+    if (!this.on) return;
+    this.on = false;
+    document.body.classList.remove('backup-mode');
+    try { this.yt && this.yt.stopVideo(); } catch {}
+    this.vid = null;
+    this._state = PS.UNSTARTED;
+    clearInterval(this._probe);
+    this._probe = null;
+  },
+
+  /* Checks every half minute whether the gateway is back. */
+  watch() {
+    clearInterval(this._probe);
+    this._probe = setInterval(async () => {
+      if (!this.on) { clearInterval(this._probe); return; }
+      try {
+        const r = await fetch('/api/health', { cache: 'no-store' });
+        if (r.ok) this.gatewayBack = true;
+      } catch {}
+    }, 30000);
+  },
+  gatewayBack: false,
+
+  applyVolume() {
+    if (!this.yt) return;
+    try {
+      this.yt.setVolume(PB._vol);
+      if (PB._muted) this.yt.mute(); else this.yt.unMute();
+    } catch {}
+  },
+  state() { return this._state; },
+  time() { try { return this.yt.getCurrentTime() || 0; } catch { return 0; } },
+  duration() {
+    try { const d = this.yt.getDuration(); if (d > 0) return d; } catch {}
+    const s = Player.current;
+    return s ? durationSecs(s.duration) : 0;
+  },
+  seek(t) { try { this.yt.seekTo(Math.max(0, Number(t) || 0), true); } catch {} },
+  play() { try { this.yt.playVideo(); } catch {} },
+  pause() { try { this.yt.pauseVideo(); } catch {} },
+  rate(r) { try { this.yt.setPlaybackRate(r); } catch {} },
 };
 
 /* ---------- getting the next song ready ----------
@@ -616,7 +831,7 @@ const PB = {
 const warmed = new Map(); // trackId -> time asked
 const WARM_TTL_MS = 10 * 60 * 1000;
 function warmTrack(trackId) {
-  if (!trackId || !navigator.onLine) return;
+  if (!trackId || !navigator.onLine || Backup.on) return;
   const t = warmed.get(trackId);
   if (t && Date.now() - t < WARM_TTL_MS) return;
   warmed.set(trackId, Date.now());
@@ -668,7 +883,7 @@ const Preload = {
     return this.el;
   },
   prepare(trackId) {
-    if (!trackId || !navigator.onLine) return;
+    if (!trackId || !navigator.onLine || Backup.on) return;
     const url = playUrl(trackId);
     if (this.trackId === trackId && this.url === url) return;
     const a = this.get();
@@ -1926,6 +2141,7 @@ function clickDownload(href, name) {
 }
 async function downloadSong(song) {
   if (!song || !song.trackId) return;
+  if (Backup.on) { toast(tr('toast.backupNoDownload')); return; }
   if (activeDownloads.has(song.trackId)) { toast(tr('toast.alreadyDownloading')); return; }
   activeDownloads.add(song.trackId);
   try {

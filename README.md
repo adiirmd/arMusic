@@ -46,6 +46,7 @@ Browser hanya pernah bicara dengan domain AR Music. Tidak ada iframe, script, ga
 - **Siap sebelum ditekan.** Lagu berikutnya di antrean disiapkan di server (`/api/warm`), dan setelah lagu yang sedang jalan cukup aman buffernya, lagu berikutnya juga dimuat diam diam di elemen audio kedua. Begitu lagu habis, elemen itu langsung jadi pemutar. Lagu yang disorot mouse atau disentuh juga disiapkan duluan.
 - **Cache.** Origin menyimpan potongan audio 256 KB di memori (LRU, dibatasi `ARMUSIC_CACHE_MB`), diisi sambil streaming jadi tidak pernah membuat pendengar menunggu. Putar ulang, seek mundur, dan lagu yang sudah disiapkan dilayani dari situ. Jawaban katalog di-cache di CDN dengan `stale-while-revalidate`, gambar dan font di-cache lama di browser.
 - **Koneksi.** Vercel memakai ulang koneksi ke origin (keep alive), sesi dan token sumber diperbarui di belakang layar sebelum habis, dan `ARMUSIC_ORIGIN` boleh berisi beberapa alamat yang dicoba bergantian kalau satu gagal.
+- **Cadangan kalau server media mati.** Kalau origin tidak bisa dihubungi, halaman pindah ke pemutar embed publik supaya musik tetap jalan, mulai dari detik yang sama. Id publik lagu hanya diberikan oleh `/api/fallback` selama origin mati; selama origin hidup jawabannya 409 dan halaman tidak memuat apa pun dari luar. Halaman mengecek tiap 30 detik, dan begitu origin kembali, lagu berikutnya diputar lewat gateway lagi. Selama mode cadangan, unduhan berhenti sementara.
 - **Id** yang diterima browser adalah token terenkripsi (AES, deterministik), bukan id asli dari katalog.
 - **Gambar** dikirim sebagai `/api/img/<token>`, alamat aslinya terenkripsi dan hanya dibuka di server.
 - **Font** di-host sendiri di `public/fonts`.
@@ -116,6 +117,7 @@ vercel deploy
 | `GET /api/download/:trackId?name=` | Audio sebagai lampiran |
 | `POST /api/warm/:trackId` | Siapkan lagu sebelum diputar |
 | `GET /api/health` | Status jalur ke origin |
+| `GET /api/fallback/:trackId` | Id untuk pemutar cadangan, hanya saat origin mati |
 | `GET /api/img/:token` | Gambar |
 | `POST /api/img/seal`, `POST /api/id/seal` | Migrasi sekali jalan untuk library lama |
 

@@ -264,8 +264,13 @@ class MainActivity : AppCompatActivity() {
     private fun isAllowed(url: Uri): Boolean {
         if (url.scheme != "https") return false
         val host = url.host ?: return false
-        // Audio, artwork and fonts all come from the site itself.
-        return host == SITE_HOST
+        // Audio, artwork and fonts all come from the site itself. The video
+        // hosts are only used by the backup player, which the site switches
+        // to while its media server is down.
+        return host == SITE_HOST ||
+            host == "youtube.com" || host.endsWith(".youtube.com") ||
+            host.endsWith(".googlevideo.com") ||
+            host.endsWith(".ytimg.com")
     }
 
     /** Android 13+ will not show the playback notification without this. */

@@ -1772,3 +1772,19 @@ html.in-app input { -webkit-user-select: text; user-select: text; }
   .ab-get { flex: 1 1 100%; order: 3; text-align: center; padding: 10px 16px; }
 }
 
+
+/* Backup player frame. It only plays sound; it is kept out of sight but at a
+   real size, since a frame that is too small or fully transparent may be
+   paused by the browser. */
+#bk-holder {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 200px;
+  height: 200px;
+  opacity: 0.001;
+  pointer-events: none;
+  z-index: -1;
+  overflow: hidden;
+}
+#bk-holder iframe { width: 200px !important; height: 200px !important; border: 0; }

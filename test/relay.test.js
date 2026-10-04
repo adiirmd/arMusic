@@ -70,3 +70,32 @@ test('connections to the origin are reused', async (t) => {
   for (let i = 0; i < 5; i++) await (await fetch(`${g.base}/p`)).text();
   assert.equal(sockets.size, 1, `${sockets.size} connections for 5 requests`);
 });
+
+test('fallback id is given out only while the origin is unreachable', async (t) => {
+  const ids = require('../lib/ids');
+  let up = true;
+  const o = await originServer((req, res) => {
+    if (!up) { req.socket.destroy(); return; }
+    res.writeHead(200, { 'X-ARMusic-Origin': '1', 'Content-Type': 'application/json' });
+    res.end('{"ok":true}');
+  });
+  process.env.ARMUSIC_ORIGIN = o.url;
+  process.env.ARMUSIC_ORIGIN_KEY = 'k1';
+  for (const m of ['../lib/playback/relay', '../lib/playback/index']) delete require.cache[require.resolve(m)];
+  const playback = require('../lib/playback');
+  const app = express();
+  playback.mount(app);
+  const g = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r({ s, base: `http://127.0.0.1:${s.address().port}` })); });
+  t.after(() => { o.s.close(); g.s.close(); });
+  const token = ids.sealId('dQw4w9WgXcQ');
+  const a = await fetch(`${g.base}/api/fallback/${token}`);
+  assert.equal(a.status, 409);
+  assert.equal(JSON.stringify(await a.json()).includes('dQw4w9WgXcQ'), false);
+  up = false;
+  await new Promise((r) => setTimeout(r, 3100));
+  const b = await fetch(`${g.base}/api/fallback/${token}`);
+  assert.equal(b.status, 200);
+  assert.deepEqual(await b.json(), { v: 'dQw4w9WgXcQ' });
+  const bad = await fetch(`${g.base}/api/fallback/not-a-token!`);
+  assert.equal(bad.status, 400);
+});
