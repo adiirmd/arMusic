@@ -1,4 +1,4 @@
-# AR Music — aplikasi Android
+# AR Music untuk Android
 
 Pembungkus WebView native untuk [music.adiirmd.id](https://music.adiirmd.id).
 Bukan Capacitor dan bukan Cordova: hanya satu Activity, satu Service, dan tiga
@@ -66,7 +66,7 @@ keytool -genkeypair -v \
 ```
 
 Simpan `release.jks` dan kata sandinya di tempat aman. **Kalau hilang, semua
-pembaruan berikutnya tidak akan bisa dipasang menimpa versi lama** — Android
+pembaruan berikutnya tidak akan bisa dipasang menimpa versi lama.** Android
 menolak APK dengan tanda tangan berbeda, dan pengguna harus menghapus dulu
 aplikasinya.
 
@@ -89,8 +89,8 @@ base64 -w0 release.jks       # isi untuk ANDROID_KEYSTORE_BASE64
 ## Membuat rilis
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.6.2
+git push origin v1.6.2
 ```
 
 Workflow `.github/workflows/android-release.yml` akan membangun APK dan AAB,
@@ -106,7 +106,7 @@ Tidak ada trik untuk "meloloskan" aplikasi dari Play Protect, dan memang tidak
 perlu ada. Play Protect menandai aplikasi karena perilakunya mencurigakan.
 Jalan satu-satunya adalah tidak melakukan hal yang mencurigakan:
 
-**Izin seminimal mungkin.** Hanya lima, dan semuanya bisa dijelaskan:
+**Izin seminimal mungkin.** Ada enam, dan semuanya bisa dijelaskan:
 
 | Izin | Alasan |
 | --- | --- |
@@ -115,16 +115,18 @@ Jalan satu-satunya adalah tidak melakukan hal yang mencurigakan:
 | `FOREGROUND_SERVICE` | menjaga audio saat aplikasi di latar belakang |
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | jenis service di atas, wajib sejak Android 14 |
 | `POST_NOTIFICATIONS` | notifikasi pemutar, wajib sejak Android 13 |
+| `WRITE_EXTERNAL_STORAGE` | menyimpan unduhan ke folder Music, hanya diminta di Android 9 ke bawah (`maxSdkVersion="28"`) |
 
-Tidak ada lokasi, kontak, SMS, penyimpanan, kamera, mikrofon, daftar aplikasi
-terpasang, maupun accessibility service. Kombinasi izin itulah yang biasanya
+Tidak ada lokasi, kontak, SMS, kamera, mikrofon, daftar aplikasi terpasang,
+maupun accessibility service. Kombinasi izin itulah yang biasanya
 memicu peringatan.
 
 **Hal lain yang dijaga:**
 
 - Ditandatangani dengan skema v1, v2, dan v3. Play Protect membaca v2/v3.
 - `usesCleartextTraffic="false"` plus network security config: semua lalu lintas wajib HTTPS.
-- WebView dikunci ke domain sendiri. Tautan lain dilempar ke browser, jadi aplikasi ini tidak bisa dijadikan peramban umum.
+- WebView dikunci ke domain sendiri, ditambah host pemutar cadangan yang hanya dipakai saat server media mati. Tautan lain dilempar ke browser, jadi aplikasi ini tidak bisa dijadikan peramban umum.
+- Unduhan hanya diterima dari `SITE_HOST` lewat HTTPS, dengan ekstensi `.m4a`.
 - `allowFileAccess` dan `allowContentAccess` dimatikan, jadi WebView tidak bisa menyentuh berkas perangkat.
 - Tidak ada pemuatan kode dinamis, tidak ada reflection akal-akalan, tidak ada packer. R8 hanya dipakai untuk minify biasa. Obfuscation berlebihan justru membuat aplikasi tampak seperti malware.
 - Tidak ada SDK iklan maupun pelacak.
@@ -138,7 +140,7 @@ manual, termasuk aplikasi yang sepenuhnya bersih, dan tidak bisa dihilangkan
 dari sisi aplikasi. Kalau ingin benar-benar tanpa peringatan, jalurnya adalah
 menerbitkannya di Google Play memakai berkas `.aab`.
 
-**Catatan soal SafetyNet.** SafetyNet Attestation — sekarang Play Integrity API —
+**Catatan soal SafetyNet.** SafetyNet Attestation, sekarang Play Integrity API,
 sering disalahpahami. Fungsinya memeriksa apakah *perangkatnya* asli dan tidak
 di-root, dan dipakai oleh aplikasi yang ingin menolak perangkat bermasalah,
 misalnya aplikasi perbankan. Aplikasi tidak "lolos SafetyNet"; perangkatlah

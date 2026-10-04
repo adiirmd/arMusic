@@ -33,29 +33,38 @@ Pemutar musik web gratis. Cari, telusuri, dan putar lagu lengkap dengan lirik te
 ## Cara kerja
 
 ```
-Browser ── HTTPS ──► music.adiirmd.id (Vercel)
-                       │  /api/*      katalog, lirik, gambar
-                       │  /api/play   audio, Range aware
-                       ▼
-                     origin (server rumah) ──► sumber audio
+Browser ─┬─ music.adiirmd.id (Vercel)      halaman, katalog, lirik, gambar
+         │      └─ /api/play  ──► origin   jalur cadangan untuk audio
+         └─ stream.adiirmd.my.id ──► origin (server rumah) ──► sumber audio
+                (Cloudflare Tunnel)
 ```
 
-Browser hanya pernah bicara dengan domain AR Music. Tidak ada iframe, script, gambar, font, atau request audio ke domain lain, dan Content-Security-Policy halaman mengunci semuanya ke `'self'`.
+Dalam keadaan normal browser hanya bicara dengan dua domain milik sendiri: `music.adiirmd.id` untuk halaman dan API, `stream.adiirmd.my.id` untuk audio. Content Security Policy halaman mengunci request ke dua domain itu, ditambah pemutar cadangan yang dijelaskan di bawah.
 
-- **Audio** diputar oleh elemen `<audio>` dengan sumber `/api/play/<id>`. Server menerjemahkan id ke sumber audio, membuka koneksi ke sana, lalu meneruskan byte secara streaming begitu tiba. Tidak ada file sementara, tidak ada transcoding, tidak ada buffer seluruh lagu. Range request diteruskan apa adanya, jadi seek langsung meminta posisi yang dituju. Backpressure dijaga lewat `stream.pipeline`: client yang lambat ikut memperlambat pembacaan dari sumber.
-- **Siap sebelum ditekan.** Lagu berikutnya di antrean disiapkan di server (`/api/warm`), dan setelah lagu yang sedang jalan cukup aman buffernya, lagu berikutnya juga dimuat diam diam di elemen audio kedua. Begitu lagu habis, elemen itu langsung jadi pemutar. Lagu yang disorot mouse atau disentuh juga disiapkan duluan.
-- **Cache.** Origin menyimpan potongan audio 256 KB di memori (LRU, dibatasi `ARMUSIC_CACHE_MB`), diisi sambil streaming jadi tidak pernah membuat pendengar menunggu. Putar ulang, seek mundur, dan lagu yang sudah disiapkan dilayani dari situ. Jawaban katalog di-cache di CDN dengan `stale-while-revalidate`, gambar dan font di-cache lama di browser.
-- **Koneksi.** Vercel memakai ulang koneksi ke origin (keep alive), sesi dan token sumber diperbarui di belakang layar sebelum habis, dan `ARMUSIC_ORIGIN` boleh berisi beberapa alamat yang dicoba bergantian kalau satu gagal.
-- **Jalur langsung ke server media.** Audio diambil dari `stream.adiirmd.my.id`, pintu publik origin lewat Cloudflare Tunnel (edge Singapura), bukan lewat function Vercel yang harus memutar ke relay Tailscale di Tokyo. Byte pertama turun dari 1 sampai 2 detik ke sekitar 0,2 detik. Pintu ini sempit: hanya `/play`, `/download`, `/warm` dengan token tersegel, CORS hanya untuk situs. Kalau jalur ini gagal untuk seorang pendengar, halaman pakai `/api/play` lewat Vercel.
-- **Lagu yang terlihat sudah siap.** Lagu yang muncul di layar disiapkan bertahap di server, dan lagu yang sedang diputar ditarik utuh ke memori di belakang layar, jadi lompat ke detik mana pun dijawab dari memori.
-- **Cadangan kalau server media mati.** Kalau origin tidak bisa dihubungi, halaman pindah ke pemutar embed publik supaya musik tetap jalan, mulai dari detik yang sama. Id publik lagu hanya diberikan oleh `/api/fallback` selama origin mati; selama origin hidup jawabannya 409 dan halaman tidak memuat apa pun dari luar. Halaman mengecek tiap 15 detik, dan begitu origin kembali, lagu berikutnya diputar lewat gateway lagi. Selama mode cadangan, unduhan berhenti sementara.
-- **Id** yang diterima browser adalah token terenkripsi (AES, deterministik), bukan id asli dari katalog.
-- **Gambar** dikirim sebagai `/api/img/<token>`, alamat aslinya terenkripsi dan hanya dibuka di server.
-- **Font** di-host sendiri di `public/fonts`.
+### Audio
 
-Kenapa ada origin terpisah: sumber audio menolak alamat IP data center untuk hampir semua lagu, dan alamat media yang diberikan terikat ke IP yang memintanya. Jadi resolve dan pengambilan audio dijalankan di server dengan IP rumahan, dan fungsi Vercel meneruskan byte-nya. Origin hanya melayani `/api/play` dan `/api/download`, dan hanya untuk request yang membawa kunci bersama.
+Elemen `<audio>` memutar `https://stream.adiirmd.my.id/play/<token>`. Di belakangnya ada origin, server rumahan yang menerjemahkan token ke sumber audio, membuka koneksi ke sana, dan meneruskan byte begitu tiba. Tidak ada file sementara dan tidak ada transcoding. Range request diteruskan apa adanya, jadi geser durasi langsung meminta posisi yang dituju, dan client yang lambat ikut memperlambat pembacaan dari sumber.
 
-Error pemutaran yang sampai ke browser hanya berupa kode: `PLAYBACK_BAD_REQUEST`, `PLAYBACK_RANGE_ERROR`, `PLAYBACK_RATE_LIMITED`, `PLAYBACK_SOURCE_UNAVAILABLE`, `PLAYBACK_STREAM_ERROR`. Detailnya ada di log server.
+Origin terpisah dari Vercel karena sumber audio menolak IP data center untuk hampir semua lagu, dan alamat media yang diberikannya terikat ke IP yang meminta. Kalau jalur `stream` gagal untuk seorang pendengar, halaman memakai `/api/play` di Vercel, yang meneruskan request ke origin lewat Tailscale Funnel.
+
+### Supaya langsung bunyi
+
+Diukur di browser sungguhan pada production, waktu dari klik sampai lagu bunyi 0,2 sampai 0,5 detik, dan geser durasi umumnya di bawah 0,05 detik. Yang membuatnya begitu:
+
+- Origin menyimpan potongan audio 256 KB di memori (LRU, dibatasi `ARMUSIC_CACHE_MB`). Cache diisi sambil streaming, dan lagu yang sedang diputar ditarik utuh di belakang layar, jadi geser ke detik mana pun dijawab dari memori.
+- Lagu berikutnya di antrean, lagu yang muncul di layar, dan lagu yang disorot atau disentuh disiapkan lebih dulu lewat `/warm`. Lagu berikutnya juga dimuat diam diam di elemen audio kedua, yang langsung jadi pemutar begitu lagu sekarang habis.
+- Koneksi ke `stream` dijaga tetap terbuka selama halaman dipakai. Dari jaringan rumahan, membuka koneksi baru makan 0,3 sampai 0,8 detik, sedangkan request di koneksi yang sudah terbuka dijawab sekitar 60 ms.
+- Sesi dan token sumber diperbarui di belakang layar sebelum habis. Jawaban katalog di-cache di CDN dengan `stale-while-revalidate`.
+
+### Kalau server rumah mati
+
+Halaman pindah ke pemutar embed publik dan melanjutkan lagu dari detik yang sama. Hanya pada mode ini browser memuat sesuatu dari luar, karena id asli lagu yang dibutuhkan pemutar itu hanya diberikan `/api/fallback` selama origin tidak bisa dihubungi. Selama origin hidup jawabannya 409. Halaman mengecek tiap 15 detik, dan begitu origin kembali, lagu berikutnya diputar lewat jalur biasa lagi. Unduhan berhenti sementara selama mode cadangan.
+
+Di server, `armusic-watchdog.timer` mengecek origin, Tailscale Funnel, dan tunnel `stream` tiap dua menit, lalu memulihkan yang mati.
+
+### Id, gambar, dan error
+
+Id yang dipegang browser adalah token terenkripsi (AES, deterministik), bukan id asli dari katalog. Gambar dikirim lewat `/api/img/<token>` dan font di-host sendiri di `public/fonts`. Error pemutaran yang sampai ke browser hanya berupa kode: `PLAYBACK_BAD_REQUEST`, `PLAYBACK_RANGE_ERROR`, `PLAYBACK_RATE_LIMITED`, `PLAYBACK_SOURCE_UNAVAILABLE`, `PLAYBACK_STREAM_ERROR`. Detailnya ada di log server.
 
 ---
 
@@ -83,12 +92,12 @@ Tanpa `ARMUSIC_ORIGIN`, satu proses melakukan semuanya, termasuk mengambil audio
 | `ARMUSIC_ROLE=origin` | origin | Origin hanya melayani route audio |
 | `ARMUSIC_PLAY_CHUNK` | origin | Batas byte per respons untuk Range terbuka, default 8 MB |
 | `ARMUSIC_CACHE_MB` | origin | Batas memori cache audio, default 160 |
-| `ARMUSIC_EDGE_PORT` | origin | Port pintu publik untuk tunnel (localhost saja) |
+| `ARMUSIC_EDGE_PORT` | origin | Port untuk `stream`, dibuka di localhost dan dijangkau lewat tunnel |
 | `ARMUSIC_FILL` | origin | `0` mematikan penarikan lagu utuh ke memori |
 | `ARMUSIC_WARM_BYTES` | origin | Seberapa banyak awal lagu yang disiapkan, default 512 KB |
 | `HOST`, `PORT` | origin | Alamat listen |
 
-Di origin, jalankan Node dengan `--dns-result-order=ipv4first` kalau host-nya tidak punya rute IPv6. Origin yang dipakai sekarang jalan sebagai service systemd, dijaga timer yang tiap dua menit mengecek origin dan jalur publiknya lalu memulihkan yang mati.
+Di origin, jalankan Node dengan `--dns-result-order=ipv4first` kalau host-nya tidak punya rute IPv6. Origin yang dipakai sekarang jalan sebagai service systemd.
 
 ---
 
@@ -123,6 +132,7 @@ vercel deploy
 | `GET /api/health` | Status jalur ke origin |
 | `GET /api/fallback/:trackId` | Id untuk pemutar cadangan, hanya saat origin mati |
 | `GET /api/img/:token` | Gambar |
+| `stream.adiirmd.my.id/play/:token` | Audio langsung dari origin, hanya token tersegel |
 | `POST /api/img/seal`, `POST /api/id/seal` | Migrasi sekali jalan untuk library lama |
 
 ---
@@ -139,7 +149,7 @@ Gunakan **Backup** di halaman Library untuk mengunduh seluruh isinya sebagai sat
 
 ```
 public/              SPA, disajikan apa adanya
-lib/playback/        gateway audio: resolve, stream, cache, range, relay, error
+lib/playback/        audio: resolve, stream, cache, range, relay, edge, error
 lib/ids.js           token id
 lib/images.js        token gambar
 lib/ratelimit.js     pembatas request
@@ -154,4 +164,5 @@ android/             pembungkus WebView untuk Android
 ## Catatan
 
 - Katalog dan sumber audio bergantung pada API pihak ketiga yang tidak berdokumentasi resmi dan bisa berubah kapan saja.
+- Aplikasi Android ada di `android/`, rilisnya di halaman Releases.
 - Dibuat untuk keperluan pribadi dan pembelajaran.
