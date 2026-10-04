@@ -383,8 +383,9 @@ function edgeUsable() { return Date.now() - Edge.failedAt > 90000; }
  * keeps it open, and one is sent at once when a finger or pointer comes
  * near a song.
  *
- * The request is made the way the audio element makes its own (no-cors,
- * with credentials), so both share the same connection. */
+ * The request carries credentials like the audio element's own requests, so
+ * both share the same connection. Its answer also says whether the media
+ * server is up, which lets the backup be got ready before anyone needs it. */
 const EdgeLink = {
   last: 0,
   timer: null,
@@ -393,7 +394,10 @@ const EdgeLink = {
     const now = Date.now();
     if (!force && now - this.last < 4000) return;
     this.last = now;
-    try { fetch(EDGE + '/health', { mode: 'no-cors', credentials: 'include', cache: 'no-store', priority: 'high' }).catch(() => {}); } catch {}
+    let p;
+    try { p = fetch(EDGE + '/health', { mode: 'cors', credentials: 'include', cache: 'no-store', priority: 'high' }); } catch { return; }
+    // the same request tells whether the media server still answers
+    p.then((r) => { if (r.ok) Backup.originOk(); else Backup.originSuspect(); }, () => Backup.originSuspect());
   },
   start() {
     clearInterval(this.timer);
@@ -579,6 +583,15 @@ const PB = {
 
   load(trackId, { start = 0, autoplay = true, keepRetry = false } = {}) {
     this.init();
+    if (!Backup.on && Backup.knownDown()) {
+      this._state = PS.BUFFERING;
+      Backup.start(trackId, { start, autoplay }).then((ok) => {
+        if (ok || !Player.current || Player.current.trackId !== trackId) return;
+        Backup.downAt = 0;
+        this.load(trackId, { start, autoplay });
+      });
+      return;
+    }
     if (Backup.on) {
       // stay on the backup until the gateway has been seen answering again
       if (!Backup.gatewayBack) {
@@ -787,11 +800,15 @@ const Backup = {
      public id when yes, null when the gateway is up (or the site cannot be
      reached at all, in which case the backup cannot help either). */
   async ask(trackId) {
+    const pre = this._ids.get(trackId);
+    if (pre && Date.now() - pre.at < 60000) return pre.v;
     try {
       const r = await fetch('/api/fallback/' + encodeURIComponent(trackId) + '?fresh=1', { cache: 'no-store' });
       if (r.status !== 200) return null;
       const j = await r.json();
-      return j && typeof j.v === 'string' ? j.v : null;
+      const v = j && typeof j.v === 'string' ? j.v : null;
+      if (v) this._ids.set(trackId, { v, at: Date.now() });
+      return v;
     } catch {
       return null;
     }
@@ -848,11 +865,46 @@ const Backup = {
       if (!this.on) { clearInterval(this._probe); return; }
       try {
         const r = await fetch('/api/health', { cache: 'no-store' });
-        if (r.ok) { this.gatewayBack = true; Edge.failedAt = 0; }
+        if (r.ok) { this.gatewayBack = true; this.downAt = 0; Edge.failedAt = 0; }
       } catch {}
-    }, 30000);
+    }, 15000);
   },
   gatewayBack: false,
+
+  /* Is the media server down? Learnt from the connection check above and
+     confirmed with the site, so the outside player is only ever loaded when
+     the site itself says the media server cannot be reached. Once that is
+     known, the player is loaded ahead of time and songs go straight to it,
+     instead of each first trying the media server and failing. */
+  downAt: 0,
+  _confirming: null,
+  _ids: new Map(),
+  /* While the media server is down, the songs someone is about to play are
+     looked up ahead, so pressing one starts the outside player at once. */
+  prefetch(trackId) {
+    if (!this.knownDown() && !this.on) return;
+    const pre = this._ids.get(trackId);
+    if (pre && Date.now() - pre.at < 60000) return;
+    this.ask(trackId);
+  },
+  originSuspect() {
+    if (this._confirming || (this.downAt && Date.now() - this.downAt < 20000)) return;
+    this._confirming = fetch('/api/health', { cache: 'no-store' })
+      .then((r) => {
+        if (r.status === 503) {
+          this.downAt = Date.now();
+          this.boot().catch(() => {});
+        }
+      })
+      .catch(() => {})
+      .finally(() => { this._confirming = null; });
+  },
+  originOk() {
+    if (!this.downAt) return;
+    this.downAt = 0;
+    if (this.on) this.gatewayBack = true;
+  },
+  knownDown() { return this.downAt && Date.now() - this.downAt < 60000; },
 
   applyVolume() {
     if (!this.yt) return;
@@ -897,6 +949,7 @@ const WARM_PARALLEL = 5;
 /* urgent: the next song, or a song the pointer or a finger is on. Those jump
    the queue; songs merely visible on screen wait their turn. */
 function warmTrack(trackId, urgent = true) {
+  if (urgent && trackId && (Backup.on || Backup.knownDown())) Backup.prefetch(trackId);
   if (!trackId || !navigator.onLine || Backup.on) return;
   const t = warmed.get(trackId);
   if (t && Date.now() - t < WARM_TTL_MS) return;
